@@ -132,6 +132,11 @@ G1 X{{ pause_position.x }} Y{{ pause_position.y }} Z{{ pause_position.z }} F4500
 
 ![Gcode Scripts](https://i.imgur.com/TDb9ENm.png)
 
+
+## Ensure to add the new baud rates depending on the firmware that you are using.
+![Enable BaudRates](https://i.imgur.com/dczZSOX.png)
+
+
 ## Issues?
 If you have issues open an Issue or a discussion. Sending the following information:
 
