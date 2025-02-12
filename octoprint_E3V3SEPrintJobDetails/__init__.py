@@ -2,6 +2,9 @@
 from __future__ import absolute_import
 import re
 import time
+import base64
+from PIL import Image, ImageChops, ImageEnhance
+import io
 import octoprint.plugin
 
 
@@ -12,6 +15,8 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                                   octoprint.plugin.TemplatePlugin
                                   ):
     
+        
+
         def __init__(self): # init global vars
             self.was_loaded = False
             self.print_time_known = False
@@ -35,6 +40,15 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             self.total_layers = 0
             self.myETA = None
             self.total_layers_found = None
+            self.LCD_COLORS = {
+                "black":  0x0841,
+                "blue":   0x19FF,
+                "red":    0xF44F,
+                "yellow": 0xFE29,
+                "white":  0xFFFF
+            }
+            
+            
 
         def get_settings_defaults(self):
             return dict(
@@ -71,6 +85,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 time.sleep(0.3)
                 self.await_start = True  # Lets Wait to complete
                 self._logger.info(">>>>>> Loaded File, Waiting for PrintStarted")
+                self.send_thumb_imagemap(payload)
 
             if event == "PrintStarted":
                 self.slicer_values()
@@ -125,6 +140,43 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self.send_O9000_cmd(f"PF|")
                 self.cleanup()
 
+
+        
+        def send_thumb_imagemap(self, payload):
+            self._logger.info(f">>>>>> E3v3seprintjobdetailsPlugin Sending Thumbnail Image Map")
+            self.file_path = payload.get("path") or self._printer.get_current_data().get("job", {}).get("file", {}).get("path")
+            if self.file_path:
+                self.file_path = self._file_manager.path_on_disk("local", self.file_path)
+                self._logger.info(f"File selected: {self.file_path}")
+                
+                # Get the thumbnail data from the G-code file
+                thumbnail_data = self.extract_thumbnail(self.file_path)
+                if thumbnail_data:
+                    self._logger.info("Thumbnail data found in the file.")
+                    self._logger.info(f"Thumbnail data: {thumbnail_data}")
+                    # Decode Base64 and send it to Marlin
+                    img = self.decode_base64_image(thumbnail_data[0])
+                    img_no_bck = self.remove_background(img)
+                    pixel_data = self.convert_to_black_and_white(img_no_bck)
+                    #self._logger.info(f"Pixel data: {pixel_data}")
+                    self._logger.info(f"Pixel data length: {len(pixel_data)}")
+                    # Ensure the pixel_data has the correct size for a 96x96 image
+                    #expected_size = 48 * 48
+                    #if len(pixel_data) != expected_size:
+                    #    raise ValueError(f"Expected pixel data size {expected_size}, but got {len(pixel_data)}")
+                    
+                    self.send_image_to_marlin(pixel_data)
+                else:
+                    self._logger.warning("Thumbnail data not found in the file.")
+
+            else:
+                self._logger.warning("File path not found in payload or current job data.")
+                return
+            
+            
+        
+        
+        
         def get_print_info(self, payload):  # Get the print info
             self._logger.info(f">>>>>> E3v3seprintjobdetailsPlugin Getting Print Details Info with counter value {self.counter}.")
 
@@ -259,8 +311,36 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self._logger.error(f"Error reading file {file_path}: {e}")
                 return None
             return None
+        
+        
+        def extract_thumbnail(self, file_path):
+            thumbnails = []
+            collecting = False
+            current_thumbnail = []
 
-        # Check if we have all Values
+            with open(file_path, 'r', encoding='utf-8') as file:
+                for line in file:
+                    line = line.strip()  # Remove leading/trailing whitespace
+                    
+                    if line.startswith("; THUMBNAIL_BLOCK_START"):
+                        collecting = False  # Reset flag in case of multiple blocks
+
+                    if collecting:
+                        if line.startswith("; thumbnail_JPG end"):
+                            thumbnails.append("".join(current_thumbnail))
+                            current_thumbnail = []
+                            collecting = False
+                            continue  # Stop collecting until next valid block
+                        else:
+                            # Remove leading "; " before storing data
+                            cleaned_line = line.lstrip("; ").rstrip()
+                            current_thumbnail.append(cleaned_line)
+
+                    if line.startswith("; thumbnail_JPG begin 96x96"):
+                        collecting = True  # Start collecting
+
+            return thumbnails
+                # Check if we have all Values
         def all_attributes_set(self, payload):
 
             self._logger.info(f">>>>>> E3v3seprintjobdetailsPlugin Checking if all attributes are set.")
@@ -380,6 +460,29 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
             # Return the cmd
             return [cmd]
+        
+        
+        def send_image_to_marlin(self, pixel_data):
+            self._logger.info("Sending Pixel Data to Marlin using CHUNKs")
+            chunk_size = 10  # Adjust as needed to stay below the 64-byte limit
+            
+            try:
+                # Send final end-of-data command
+                self.send_O9002_cmd("O9002 START 96 96")
+                time.sleep(0.2)
+                for i in range(0, len(pixel_data), chunk_size):
+                    chunk = pixel_data[i:i + chunk_size]
+                    # Create a command with a chunk offset followed by pixel data
+                    command = f"O9002 CHUNK {i}|{','.join(map(str, chunk))}"
+                    self.send_O9002_cmd(command)  # Send the chunk command to Marlin
+                    time.sleep(0.2)  # Small delay to avoid overflowing Marlin's buffer
+                
+                # Send final end-of-data command
+                self.send_O9002_cmd("O9002 END")
+                self._logger.info("Pixel Data sent successfully to Marlin")
+            except Exception as e:
+                self._logger.error(f"Error sending pixel data to Marlin: {e}")
+                    
 
         # Send the O9000 comand to the printer
         def send_O9000_cmd(self, value):
@@ -394,6 +497,14 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             if self._settings.get(["enable_o9000_commands"]):
                 self._printer.commands(value)
                 #time.sleep(0.15) # wait for the command to be sent
+                
+        # Send the O9001 comand to the printer
+        def send_O9002_cmd(self, value):
+            # self._logger.info(f"Trying to send command: O9000 {value}")
+            if self._settings.get(["enable_o9000_commands"]):
+                self._printer.commands(value)
+                #time.sleep(0.15) # wait for the command to be sent
+                
 
         # Classic function to change Seconds in to hh:mm:ss
         def seconds_to_hms(self, seconds_float):
@@ -415,6 +526,53 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             else:
                 self._logger.warning("Print ended but no start time was recorded.")
                 return "00:00:00"
+
+
+
+        # Function to map grayscale to nearest LCD color
+        def map_to_nearest_color(self, pixel):
+            threshold = 128
+            if pixel < 50:
+                return self.LCD_COLORS["black"]
+            elif pixel < 100:
+                return self.LCD_COLORS["blue"]
+            elif pixel < 150:
+                return self.LCD_COLORS["red"]
+            elif pixel < 200:
+                return self.LCD_COLORS["yellow"]
+            return self.LCD_COLORS["white"]
+
+
+        # Decode Base64 image to raw pixel data
+        def decode_base64_image(self, b64_string):
+            image_data = base64.b64decode(b64_string)  # Decode Base64
+            image = Image.open(io.BytesIO(image_data))  # Open image with Pillow
+            return image
+        
+        
+        # Remove background from the image
+        def remove_background(self, image):
+            # Convert image to grayscale
+            grayscale_image = image.convert("L")
+            # Enhance the contrast to make background removal easier
+            enhancer = ImageEnhance.Contrast(grayscale_image)
+            enhanced_image = enhancer.enhance(2.0)
+            # Create a binary mask where the background is white
+            binary_mask = enhanced_image.point(lambda p: p > 200 and 255)
+            # Invert the mask
+            inverted_mask = ImageChops.invert(binary_mask)
+            # Apply the mask to the original image
+            image_with_transparency = image.convert("RGBA")
+            image_with_transparency.putalpha(inverted_mask)
+            return image_with_transparency
+
+        # Convert image to grayscale and map to black and white
+        def convert_to_black_and_white(self, image):
+            grayscale_image = image.convert("L")  # Convert image to grayscale
+            pixel_values = list(grayscale_image.getdata())  # Get pixel values
+            return [self.map_to_nearest_color(pixel) for pixel in pixel_values]  # Map to nearest LCD color
+
+    
 
         def cleanup(self):
             self.total_layers = 0
@@ -460,7 +618,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
 
 __plugin_pythoncompat__ = ">=3,<4"  # Only Python 3
-__plugin_version__ = "0.0.1.9"
+__plugin_version__ = "0.0.1.9TH1"
 
 
 def __plugin_load__():
