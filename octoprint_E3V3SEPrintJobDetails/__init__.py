@@ -156,16 +156,16 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     self._logger.info(f"Thumbnail data: {thumbnail_data}")
                     # Decode Base64 and send it to Marlin
                     img = self.decode_base64_image(thumbnail_data[0])
-                    img_no_bck = self.remove_background(img)
-                    pixel_data = self.convert_to_black_and_white(img_no_bck)
+                    #img_no_bck = self.remove_background(img)
+                    #pixel_data = self.convert_to_black_and_white(img_no_bck)
                     #self._logger.info(f"Pixel data: {pixel_data}")
-                    self._logger.info(f"Pixel data length: {len(pixel_data)}")
+                    self._logger.info(f"Pixel data length: {len(img)}")
                     # Ensure the pixel_data has the correct size for a 96x96 image
                     #expected_size = 48 * 48
                     #if len(pixel_data) != expected_size:
                     #    raise ValueError(f"Expected pixel data size {expected_size}, but got {len(pixel_data)}")
                     
-                    self.send_image_to_marlin(pixel_data)
+                    self.send_image_to_marlin(img)
                 else:
                     self._logger.warning("Thumbnail data not found in the file.")
 
@@ -546,8 +546,8 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
         # Decode Base64 image to raw pixel data
         def decode_base64_image(self, b64_string):
             image_data = base64.b64decode(b64_string)  # Decode Base64
-            image = Image.open(io.BytesIO(image_data))  # Open image with Pillow
-            return image
+            #image = Image.open(io.BytesIO(image_data))  # Open image with Pillow
+            return image_data
         
         
         # Remove background from the image
@@ -618,7 +618,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
 
 __plugin_pythoncompat__ = ">=3,<4"  # Only Python 3
-__plugin_version__ = "0.0.1.9TH1"
+__plugin_version__ = "0.0.1.9B64.1a"
 
 
 def __plugin_load__():
