@@ -6,9 +6,14 @@ import base64
 from PIL import Image, ImageChops, ImageEnhance
 import io
 import octoprint.plugin
+import octoprint.filemanager
+import octoprint.filemanager.util
+import json
+import os
 
 
 class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
+                                  octoprint.filemanager.util.LineProcessorStream,
                                   octoprint.plugin.EventHandlerPlugin,
                                   octoprint.plugin.ProgressPlugin,
                                   octoprint.plugin.SettingsPlugin,
@@ -18,6 +23,9 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
         
 
         def __init__(self): # init global vars
+            
+            self.plugin_data_folder = None
+            self.metadata_dir = None
             self.was_loaded = False
             self.print_time_known = False
             self.total_layers_known = False
@@ -40,6 +48,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             self.total_layers = 0
             self.myETA = None
             self.total_layers_found = None
+            self.b64_thumb = None
             self.LCD_COLORS = {
                 "black":  0x0841,
                 "blue":   0x19FF,
@@ -61,8 +70,20 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 dict(type="settings", template="settings.e3v3seprintjobdetails_plugin_settings.jinja2", name="E3V3SE Print Job Details", custom_bindings=False)
             ]
 
+
         def on_after_startup(self):
             self._logger.info(">>>>>> E3v3seprintjobdetailsPlugin Loaded <<<<<<")
+            # Get the plugin's data folder (OctoPrint manages this)
+            data_folder = self.get_plugin_data_folder()
+            
+            # Define the metadata subdirectory
+            self.metadata_dir = os.path.join(data_folder, "metadata")
+            
+            # Create the directory if it doesn't exist
+            os.makedirs(self.metadata_dir, exist_ok=True)
+            os.chmod(self.metadata_dir, 0o775)
+    
+            self._logger.info(f">>>>>> E3v3seprintjobdetailsPlugin Metadata directory initialized: {self.metadata_dir}")
             self.slicer_values()
 
         def slicer_values(self):
@@ -71,6 +92,91 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             self._logger.info(f"Enable O9000 Commands: {self._settings.get(['enable_o9000_commands'])}")
             self._logger.info(f"Progress based on: {self._settings.get(['progress_type'])}")
 
+
+        # save metadata of the file
+        def save_metadata_to_json(self, filename, metadata):
+            metadata_path = self.metadata_dir + f"/{filename}.json"
+            
+            try:    
+                with open(metadata_path, "w") as metadata_file:
+                    json.dump(metadata, metadata_file)
+                self._logger.info(f"Metadata saved to {metadata_path}")
+            
+            except Exception as e:
+                self._logger.error(f"Failed to save metadata to {metadata_path}: {e}") 
+                
+        # load metadata file                             
+        def load_metadata_from_json(self, filename):
+            metadata_path = self.metadata_dir + f"/{filename}.json"
+            
+            try:
+                with open(metadata_path, "r") as metadata_file:
+                    metadata = json.load(metadata_file)
+                self._logger.info(f"Metadata loaded from {metadata_path}")
+            
+                return metadata
+            except Exception as e:
+                self._logger.error(f"Failed to load metadata from {metadata_path}: {e}")
+                return None
+
+        # preprocess the file to get details.
+        def file_preprocessor(self, path, file_object, links, printer_profile, allow_overwrite, *args, **kwargs):
+            """Intercept file uploads and process them before allowing selection or printing."""
+            self._logger.info(f">>>>>> E3v3seprintjobdetailsPlugin PreProcessing file: {file_object}")
+            self._logger.info(f">>>>>> E3v3seprintjobdetailsPlugin PreProcessing path: {path}")
+             
+            if not octoprint.filemanager.valid_file_type(path, type="gcode"):
+                return file_object
+            
+            self.file_name = file_object.filename
+             
+            # Read the file content from the stream
+            file_stream = file_object.stream()
+            file_content = file_stream.read().decode('utf-8')
+            
+            # obtain the data from stream
+            self.total_layers = self.find_total_layers_from_content(file_content)
+            self._logger.info(f">>>>>> E3v3seprintjobdetailsPlugin PreProcessing Total Layers: {self.total_layers}")
+            self.thumb_data = self.extract_thumbnail_from_content(file_content)
+            
+            if self._settings.get(["progress_type"]) == "m73_progress":
+                self.progress, self.myETA = self.find_first_m73_from_content(file_content)
+                self.print_time = self.myETA
+            else:
+                self.progress = 0
+                self.myETA = "00:00:00"
+                self.print_time = "00:00:00"    
+            
+            # save into object
+            metadata = {
+            "file_name": self.file_name,
+            "file_path": path,   
+            "total_layers": self.total_layers,  
+            "print_time": self.print_time,  
+            "print_time_left": self.print_time,
+            "current_layer": 0,
+            "progress": self.progress,
+            "thumb_data": self.thumb_data,
+            "processed": True
+            }
+            
+            self._logger.info(f">>>>>> E3v3seprintjobdetailsPlugin PreProcessing Metadata: {metadata}")
+            
+            # Store metadata
+            try:
+                self.save_metadata_to_json(self.file_name, metadata)
+                self._logger.info(f"Metadata written for {path}")
+            except Exception as e:
+                self._logger.error(f"Error writing metadata for {path}: {e}")
+                        
+            self._logger.info(f">>>>>> E3v3seprintjobdetailsPlugin PreProcessing Parsing complete for {self.file_name}")
+            
+            # Return the processed file without modifications
+            return file_object 
+        
+        
+        
+        # Listen for the events
         def on_event(self, event, payload):
             self._logger.info(f">>>>>> E3v3seprintjobdetailsPlugin Event detected: {event}")  # Verify Events, Better to comment this
 
@@ -81,11 +187,52 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self.cleanup()
 
             if event == "FileSelected":  # If file selected gather all data
-                self.was_loaded = True
-                time.sleep(0.3)
-                self.await_start = True  # Lets Wait to complete
-                self._logger.info(">>>>>> Loaded File, Waiting for PrintStarted")
-                self.send_thumb_imagemap(payload)
+                self._logger.info(">>>>>> Loaded File, Getting Metadata")
+                # Get filename and path from payload
+                file_name = payload.get("name")
+                file_path = payload.get("path")
+                        
+                try:
+                    # Get all metadata 
+                    md = self.load_metadata_from_json(file_path)
+                    #self._logger.info(md)
+    
+                    self.file_name = md["file_name"]
+                    self.file_path = md["file_path"]
+                    self.total_layers_found = md["total_layers"]
+                    self.print_time =  md["print_time"]
+                    self.print_time_left = md["print_time_left"]
+                    self.current_layer = md["current_layer"]
+                    self.progress = md["progress"]
+                    self.b64_thumb = md["thumb_data"]
+                    
+                     # If we have all the values we can send the info to the printer
+                    self._logger.info(f"Sending Print Info")
+                    self._logger.info(f"File selected: {self.file_name}")
+                    self._logger.info(f"Print Time: {self.print_time}")
+                    self._logger.info(f"Print Time Left: {self.print_time_left}")
+                    self._logger.info(f"current layer: {self.current_layer}")
+                    self._logger.info(f"progress: {self.progress}")
+
+                    # Send the print Info using custom O Command O9000 to the printer
+                    self.send_O9000_cmd(f"SFN|{self.file_name}")
+                    self.send_O9000_cmd(f"STL|{self.total_layers}")
+                    self.send_O9000_cmd(f"SCL|{str(self.current_layer).rjust(7, ' ')}")
+                    self.send_O9000_cmd(f"SPT|{self.print_time}")
+                    self.send_O9000_cmd(f"SET|{self.print_time}")
+                    self.send_O9000_cmd(f"SPP|{self.progress}")
+                    self.send_O9000_cmd(f"SC|")
+                    # Send the image map
+                    self.send_thumb_imagemap(self.b64_thumb)
+                    
+                    
+                    
+                except Exception as e:
+                    self._logger.error(f"Error retrieving metadata for {file_path}: {e}")
+                    return None              
+                        
+                #self.send_O9000_cmd("SC|")
+                #self.send_thumb_imagemap(payload)
 
             if event == "PrintStarted":
                 self.slicer_values()
@@ -140,41 +287,6 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self.send_O9000_cmd(f"PF|")
                 self.cleanup()
 
-
-        
-        def send_thumb_imagemap(self, payload):
-            self._logger.info(f">>>>>> E3v3seprintjobdetailsPlugin Sending Thumbnail Image Map")
-            self.file_path = payload.get("path") or self._printer.get_current_data().get("job", {}).get("file", {}).get("path")
-            if self.file_path:
-                self.file_path = self._file_manager.path_on_disk("local", self.file_path)
-                self._logger.info(f"File selected: {self.file_path}")
-                
-                # Get the thumbnail data from the G-code file
-                thumbnail_data = self.extract_thumbnail(self.file_path)
-                if thumbnail_data:
-                    self._logger.info("Thumbnail data found in the file.")
-                    self._logger.info(f"Thumbnail data: {thumbnail_data}")
-                    # Decode Base64 and send it to Marlin
-                    img = self.decode_base64_image(thumbnail_data[0])
-                    img_no_bck = self.remove_background(img)
-                    pixel_data = self.convert_to_black_and_white(img_no_bck)
-                    #self._logger.info(f"Pixel data: {pixel_data}")
-                    self._logger.info(f"Pixel data length: {len(pixel_data)}")
-                    # Ensure the pixel_data has the correct size for a 96x96 image
-                    #expected_size = 48 * 48
-                    #if len(pixel_data) != expected_size:
-                    #    raise ValueError(f"Expected pixel data size {expected_size}, but got {len(pixel_data)}")
-                    
-                    self.send_image_to_marlin(pixel_data)
-                else:
-                    self._logger.warning("Thumbnail data not found in the file.")
-
-            else:
-                self._logger.warning("File path not found in payload or current job data.")
-                return
-            
-            
-        
         
         
         def get_print_info(self, payload):  # Get the print info
@@ -294,52 +406,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self.myETA = self.seconds_to_hms(self.print_time_left)
                 self._logger.info(f"O9001|ET:{self.myETA}|PG:{self.progress}|CL:{str(self.layer_number).rjust(7, ' ')}")
 
-        def find_total_layers(self, file_path):
-            # Find the Total Layer string in GCODE
-            try:
-                with open(file_path, "r") as gcode_file:
-                    for line in gcode_file:
-                        if "; total layer number:" in line:
-                            # Extract total layers if Orca Generated
-                            self.total_layers_found = line.strip().split(":")[-1].strip()
-                            return self.total_layers_found
-                        elif ";LAYER_COUNT:" in line:
-                            # Extract total layers if Cura Generated
-                            self.total_layers_found = line.strip().split(":")[-1].strip()
-                            return self.total_layers_found
-            except Exception as e:
-                self._logger.error(f"Error reading file {file_path}: {e}")
-                return None
-            return None
-        
-        
-        def extract_thumbnail(self, file_path):
-            thumbnails = []
-            collecting = False
-            current_thumbnail = []
 
-            with open(file_path, 'r', encoding='utf-8') as file:
-                for line in file:
-                    line = line.strip()  # Remove leading/trailing whitespace
-                    
-                    if line.startswith("; THUMBNAIL_BLOCK_START"):
-                        collecting = False  # Reset flag in case of multiple blocks
-
-                    if collecting:
-                        if line.startswith("; thumbnail_JPG end"):
-                            thumbnails.append("".join(current_thumbnail))
-                            current_thumbnail = []
-                            collecting = False
-                            continue  # Stop collecting until next valid block
-                        else:
-                            # Remove leading "; " before storing data
-                            cleaned_line = line.lstrip("; ").rstrip()
-                            current_thumbnail.append(cleaned_line)
-
-                    if line.startswith("; thumbnail_JPG begin 96x96"):
-                        collecting = True  # Start collecting
-
-            return thumbnails
                 # Check if we have all Values
         def all_attributes_set(self, payload):
 
@@ -461,28 +528,6 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             # Return the cmd
             return [cmd]
         
-        
-        def send_image_to_marlin(self, pixel_data):
-            self._logger.info("Sending Pixel Data to Marlin using CHUNKs")
-            chunk_size = 10  # Adjust as needed to stay below the 64-byte limit
-            
-            try:
-                # Send final end-of-data command
-                self.send_O9002_cmd("O9002 START 96 96")
-                time.sleep(0.2)
-                for i in range(0, len(pixel_data), chunk_size):
-                    chunk = pixel_data[i:i + chunk_size]
-                    # Create a command with a chunk offset followed by pixel data
-                    command = f"O9002 CHUNK {i}|{','.join(map(str, chunk))}"
-                    self.send_O9002_cmd(command)  # Send the chunk command to Marlin
-                    time.sleep(0.2)  # Small delay to avoid overflowing Marlin's buffer
-                
-                # Send final end-of-data command
-                self.send_O9002_cmd("O9002 END")
-                self._logger.info("Pixel Data sent successfully to Marlin")
-            except Exception as e:
-                self._logger.error(f"Error sending pixel data to Marlin: {e}")
-                    
 
         # Send the O9000 comand to the printer
         def send_O9000_cmd(self, value):
@@ -527,6 +572,135 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self._logger.warning("Print ended but no start time was recorded.")
                 return "00:00:00"
 
+
+        def find_total_layers(self, file_path):
+            # Find the Total Layer string in GCODE
+            try:
+                with open(file_path, "r") as gcode_file:
+                    for line in gcode_file:
+                        if "; total layer number:" in line:
+                            # Extract total layers if Orca Generated
+                            self.total_layers_found = line.strip().split(":")[-1].strip()
+                            return self.total_layers_found
+                        elif ";LAYER_COUNT:" in line:
+                            # Extract total layers if Cura Generated
+                            self.total_layers_found = line.strip().split(":")[-1].strip()
+                            return self.total_layers_found
+            except Exception as e:
+                self._logger.error(f"Error reading file {file_path}: {e}")
+                return None
+            return None
+        
+        
+        def find_first_m73(self, file_path):
+            try:
+                with open(file_path, "r") as gcode_file:
+                    for line in gcode_file:
+                        m73_match = re.match(r"M73 P(\d+)(?: R(\d+))?", line)
+                        if m73_match:
+                            self.progress = int(m73_match.group(1))  # Extract progress (P)
+                            remaining_minutes = int(m73_match.group(2)) if m73_match.group(2) else 0  # Extract remaining minutes (R), default to 0 if missing
+                            # Convert remaining minutes to HH:MM:SS
+                            hours, minutes = divmod(remaining_minutes, 60)
+                            seconds = 0
+                            remaining_time_hms = f"{hours:02}:{minutes:02}:{seconds:02}"
+
+                            # Log and send the progress and remaining time
+                            if self.progress == 0:
+                                self.print_time = remaining_minutes *60
+                                self.print_time_left = remaining_minutes *60
+                                self.current_layer = 0
+                                self.print_time_known = True
+                                return self.progress, remaining_time_hms   
+                            
+            except Exception as e:
+                self._logger.error(f"Error reading file {file_path}: {e}")
+                return None
+            return None
+        
+        
+        def extract_thumbnail(self, file_path):
+            thumbnails = []
+            collecting = False
+            current_thumbnail = []
+
+            with open(file_path, 'r', encoding='utf-8') as file:
+                for line in file:
+                    line = line.strip()  # Remove leading/trailing whitespace
+                    
+                    if line.startswith("; THUMBNAIL_BLOCK_START"):
+                        collecting = False  # Reset flag in case of multiple blocks
+
+                    if collecting:
+                        if line.startswith("; thumbnail_JPG end"):
+                            thumbnails.append("".join(current_thumbnail))
+                            current_thumbnail = []
+                            collecting = False
+                            continue  # Stop collecting until next valid block
+                        else:
+                            # Remove leading "; " before storing data
+                            cleaned_line = line.lstrip("; ").rstrip()
+                            current_thumbnail.append(cleaned_line)
+
+                    if line.startswith("; thumbnail_JPG begin 96x96"):
+                        collecting = True  # Start collecting
+
+            return thumbnails
+
+
+
+        def send_thumb_imagemap(self, b64):
+            self._logger.info(f">>>>>> E3v3seprintjobdetailsPlugin Sending Thumbnail Image Map")
+            #self.file_path = payload.get("path") or self._printer.get_current_data().get("job", {}).get("file", {}).get("path")
+        #if self.file_path:
+        #    self.file_path = self._file_manager.path_on_disk("local", self.file_path)
+        #    self._logger.info(f"File selected: {self.file_path}")
+            
+            # Get the thumbnail data from the G-code file
+            #thumbnail_data = self.extract_thumbnail(self.file_path)
+            if b64:
+                self._logger.info("Thumbnail data found in the file.")
+                self._logger.info(f"Thumbnail data: {b64}")
+                # Decode Base64 and send it to Marlin
+                img = self.decode_base64_image(b64[0])
+                pixel_data = self.get_pixel_data(img)
+                self._logger.info(f"Pixel data length: {len(pixel_data)}")
+                # Ensure the pixel_data has the correct size for a 96x96 image
+                expected_size = 96 * 96
+                if len(pixel_data) != expected_size:
+                    raise ValueError(f"Expected pixel data size {expected_size}, but got {len(pixel_data)}")
+                
+                self.send_image_to_marlin(pixel_data)
+            else:
+                self._logger.warning("Thumbnail data not found in the file.")
+                return    
+        #else:
+        #    self._logger.warning("File path not found in payload or current job data.")
+        #    return
+            
+
+
+        def send_image_to_marlin(self, pixel_data):
+            chunk_size = 10  # Adjust as needed to stay below the 64-byte limit
+            self._logger.info(f"Sending Pixel Data to Marlin using CHUNKs of {chunk_size}")
+            
+            try:
+                # Send final end-of-data command
+                self.send_O9002_cmd("O9002 START 96 96")
+                time.sleep(0.2)
+                for i in range(0, len(pixel_data), chunk_size):
+                    chunk = pixel_data[i:i + chunk_size]
+                    # Create a command with a chunk offset followed by pixel data
+                    command = f"O9002 CHUNK {i}|{','.join(map(str, chunk))}"
+                    self.send_O9002_cmd(command)  # Send the chunk command to Marlin
+                    time.sleep(0.05)  # Small delay to avoid overflowing Marlin's buffer
+                
+                # Send final end-of-data command
+                self.send_O9002_cmd("O9002 END")
+                self._logger.info("Pixel Data sent successfully to Marlin")
+            except Exception as e:
+                self._logger.error(f"Error sending pixel data to Marlin: {e}")
+                            
 
 
         # Function to map grayscale to nearest LCD color
@@ -573,6 +747,87 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             return [self.map_to_nearest_color(pixel) for pixel in pixel_values]  # Map to nearest LCD color
 
     
+        def get_pixel_data(self, image):
+            img = image.convert('RGB')  # Ensure RGB mode
+            width, height = img.size
+            imgbytes = img.tobytes()
+
+            # Create the pixel map array
+            pixel_map = []
+
+            for y in range(height):
+                for x in range(width):
+                    idx = (y * width + x) * 3
+                    r_scaled = (imgbytes[idx]     * 31) // 255
+                    g_scaled = (imgbytes[idx + 1] * 63) // 255
+                    b_scaled = (imgbytes[idx + 2] * 31) // 255
+                    color16bit = (r_scaled << 11) | (g_scaled << 5) | b_scaled
+                    pixel_map.append(color16bit)  # Save pixel in the map
+
+            return pixel_map    
+        
+        
+        
+        
+        def find_total_layers_from_content(self, file_content):
+            # Find the Total Layer string in GCODE content
+            for line in file_content.splitlines():
+                if "; total layer number:" in line:
+                    # Extract total layers if Orca Generated
+                    self.total_layers_found = line.strip().split(":")[-1].strip()
+                    return self.total_layers_found
+                elif ";LAYER_COUNT:" in line:
+                    # Extract total layers if Cura Generated
+                    self.total_layers_found = line.strip().split(":")[-1].strip()
+                    return self.total_layers_found
+            return None
+
+        def find_first_m73_from_content(self, file_content):
+            for line in file_content.splitlines():
+                m73_match = re.match(r"M73 P(\d+)(?: R(\d+))?", line)
+                if m73_match:
+                    self.progress = int(m73_match.group(1))  # Extract progress (P)
+                    remaining_minutes = int(m73_match.group(2)) if m73_match.group(2) else 0  # Extract remaining minutes (R), default to 0 if missing
+                    # Convert remaining minutes to HH:MM:SS
+                    hours, minutes = divmod(remaining_minutes, 60)
+                    seconds = 0
+                    remaining_time_hms = f"{hours:02}:{minutes:02}:{seconds:02}"
+
+                    # Log and send the progress and remaining time
+                    if self.progress == 0:
+                        self.print_time = remaining_minutes * 60
+                        self.print_time_left = remaining_minutes * 60
+                        self.current_layer = 0
+                        self.print_time_known = True
+                        return self.progress, remaining_time_hms
+            return 0, "00:00:00"
+
+        def extract_thumbnail_from_content(self, file_content):
+            thumbnails = []
+            collecting = False
+            current_thumbnail = []
+
+            for line in file_content.splitlines():
+                line = line.strip()  # Remove leading/trailing whitespace
+                
+                if line.startswith("; THUMBNAIL_BLOCK_START"):
+                    collecting = False  # Reset flag in case of multiple blocks
+
+                if collecting:
+                    if line.startswith("; thumbnail_JPG end"):
+                        thumbnails.append("".join(current_thumbnail))
+                        current_thumbnail = []
+                        collecting = False
+                        continue  # Stop collecting until next valid block
+                    else:
+                        # Remove leading "; " before storing data
+                        cleaned_line = line.lstrip("; ").rstrip()
+                        current_thumbnail.append(cleaned_line)
+
+                if line.startswith("; thumbnail_JPG begin 96x96"):
+                    collecting = True  # Start collecting
+
+            return thumbnails
 
         def cleanup(self):
             self.total_layers = 0
@@ -628,5 +883,6 @@ def __plugin_load__():
 
     global __plugin_hooks__
     __plugin_hooks__ = {
+         "octoprint.filemanager.preprocessor": __plugin_implementation__.file_preprocessor,
         "octoprint.comm.protocol.gcode.queuing": __plugin_implementation__.gcode_sending_handler
     }
