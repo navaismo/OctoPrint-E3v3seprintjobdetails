@@ -54,6 +54,9 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             self.marlin_finished = False
             self.is_direct_print = False
             self.sent_imagemap = False
+            self.printer_busy = False
+            self.get_last_chunk = False
+            self.chunk_index = 0
             
             
         def get_current_function_name(self):
@@ -62,7 +65,8 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
         def get_settings_defaults(self):
             return dict(
                 enable_o9000_commands=False,  # Default value for the slider.
-                 progress_type="time_progress"  # Default option selected for radio buttons.
+                enable_gcode_preview=False,  # Default value for the slider.
+                progress_type="time_progress"  # Default option selected for radio buttons.
             )
 
         def get_template_configs(self): # get the values
@@ -220,7 +224,11 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                         self._plugin_manager.send_plugin_message(self._identifier, {"type":"popup", "message":"Rendering Data in the LCD. Please Wait..."})
                         # Start a thread to get the metadata
                         threading.Thread(target=self.get_print_metadata(self.file_name), daemon=True).start() # Get the metadata
-                                               
+                        
+                        # If Gcode preview is disabled, close the popup
+                        if not self._settings.get(["enable_gcode_preview"]): 
+                            self._plugin_manager.send_plugin_message(self._identifier, dict(type="close_popup"))
+                                                
                 except Exception as e: # Catch any error
                     self._logger.error(f"{self.get_current_function_name()}: {e}")                    
                         
@@ -253,7 +261,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                             #Not M73 print, we get the time from the printer job and set it
                             self.print_time = self._printer.get_current_data().get("job", {}).get("estimatedPrintTime", "00:00:00")
                             self.print_time_left = self.print_time
-                            self.send_O9000_cmd(f"UPT|{self.seconds_to_hms(self.print_time_left)}")
+                            self.send_O9000_cmd(f"UPT|{self.seconds_to_hms(self.print_time)}")
                             self.send_O9001_cmd(f"O9001|ET:{self.seconds_to_hms(self.print_time_left)}|PG:{self.progress}|CL:{str(self.total_layers).rjust(7, ' ')}")
                             self.counter += 1
                         
@@ -324,9 +332,14 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self.sent_metadata = True # We have sent the metadata
                 time.sleep(0.2)
                 
-                if not self.sent_imagemap: #check If we have already sent the imagemap
-                    self.send_thumb_imagemap(self.b64_thumb, "O9002")
-                
+                # If we enable the GCode Preview we send the thumbnail
+                if self._settings.get(["enable_gcode_preview"]):
+                    if not self.sent_imagemap: #check If we have already sent the imagemap
+                        self.send_thumb_imagemap(self.b64_thumb, "O9002")
+                else:
+                    self._logger.info("GCode Preview is disabled, skipping the GCode Thumbnail")
+                    self.processing_file = False # Release the file
+                    return True
                     
             except Exception as e:
                 self._logger.error(f"{self.get_current_function_name()}:  {e}")
@@ -433,10 +446,10 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
         
         
         
-        
+        # Catch the response from the printer
         def gcode_received_handler(self, comm, line, *args, **kwargs):
             #self._logger.info(f"========== >>>>>  Received G-code response: {line}")
-            # Process the response 
+            # LCD Ready 
             if line.startswith("O9000"):
                 self._logger.info(f"Processing O9000 response: {line}")
                 # check if we received the string "sc-rendered" from command O9000 sc-rendered
@@ -445,7 +458,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     self.is_lcd_ready = True
                     return line
                 
-                        
+            # Thumbnail Ready            
             if line.startswith("O9002"):
                 self._logger.info(f"Processing O9002 response: {line}")
                 # check if we received the string "thumbnail-rendered" from command O9002 
@@ -461,8 +474,42 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                         self._logger.info(">>> Printer is paused. Resuming print job now.")
                         self._printer.resume_print()
                 
-                    return line            
+                    return line
                 
+                # If we get a CHUNK word in the command and the temp_started is True save the last chunk to get array
+                elif "CHUNK" in line:
+                    if self.get_last_chunk:
+                        #self._logger.info(f"Processing Thumbnail CHUNK")
+                        # get the index of chunk O9002 CHUNK 660|0,0,0,0,0,0,0,0,0,0,0,0, 660 is the index
+                        self.chunk_index = int(line.split("|")[0].split(" ")[2])
+                                              
+                    return line            
+            
+            
+            # Check if we receive //action:notification Bed Heating... and set var to true
+            if "action:notification" in line:
+                if "Bed Heating" in line:
+                    self.get_last_chunk = True
+                    self._logger.info(f"Bed Heating detected")
+                    return line
+                
+                
+            # Printer Busy    
+            if "busy: processing" in line:
+                #self._logger.info(f"Busy printing could be Temp or ImageMap")
+                self.printer_busy = True
+                if self.get_last_chunk:
+                    self.get_last_chunk = False
+                    
+                return line
+            
+            
+            # Printer Ready    
+            if "ok" in line:
+                #self._logger.info(f"Printer is ready to receive commands")
+                self.printer_busy = False
+                return line    
+            
             
             return line
         
@@ -551,6 +598,16 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     chunk = pixel_data[i:i + chunk_size]
                     # Create a command with a chunk offset followed by pixel data
                     command = f"{o_cmd} CHUNK {i}|{','.join(map(str, chunk))}"
+                    
+                    # Wait if the printer is busy
+                    while self.printer_busy:
+                        #self._logger.info("Printer is busy, waiting...")
+                        time.sleep(2)
+                    
+                    if self._printer.is_printing():
+                        self._printer.pause_print()
+                        #self._logger.info("Pausing again to finish Image Transmission...")
+                        
                     self._printer.commands(command)  # Send the chunk command to Marlin
                     time.sleep(0.06)  # Small delay to avoid overflowing Marlin's buffer
                 
@@ -690,6 +747,9 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             self.marlin_finished = False
             self.is_direct_print = False
             self.sent_imagemap = False
+            self.printer_busy = False
+            self.get_last_chunk = False
+            self.chunk_index = 0
            
 
 
