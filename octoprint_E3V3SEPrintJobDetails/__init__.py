@@ -28,8 +28,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
            
             self.plugin_data_folder = None
             self.metadata_dir = None
-            self.prev_print_time_left = None
-            self.prev_layer_number = None
+            self.prev_print_time_left = None    
             self.start_time = None
             self.elapsed_time = None
             self.file_name = None
@@ -45,6 +44,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             self.await_start = False
             self.printing_job = False
             self.is_lcd_ready = False
+            self.prev_layer_number = 0
             self.counter = 0
             self.current_layer = 0
             self.total_layers = 0
@@ -208,24 +208,22 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     self.file_name = payload.get("name")
                     self.file_path = payload.get("path")
                     
-                    if not self.is_direct_print:
-                        self.processing_file = True
+                    if not self.is_direct_print: #Flag for direct print is False
+                        self.processing_file = True #lock the file
                         self._logger.info("Not a Direct Print, Processing Metadata File")
                         self._logger.info("Set Lock for FileSelected")
-                        threading.Thread(target=self.get_print_metadata(self.file_name), daemon=True).start()
-                        self._plugin_manager.send_plugin_message(self._identifier, dict(action="disable_print_button", status="start"))
-                  
-                    self._logger.info(f">>>>>> Loaded File: {self.file_name}, Getting Metadata")    
-                    # Start file processing in a separate thread to avoid blocking
-                                       
-                except Exception as e:
+                        # Send popup to the GUI
+                        self._plugin_manager.send_plugin_message(self._identifier, dict(type="popup", message="Rendering Data in the LCD. Please Wait..."))
+                        # Start a thread to get the metadata
+                        threading.Thread(target=self.get_print_metadata(self.file_name), daemon=True).start() # Get the metadata
+                                               
+                except Exception as e: # Catch any error
                     self._logger.error(f"{self.get_current_function_name()}: {e}")                    
                         
                     
 
             if event == "PrintStarted": #Job Print Started
                 self.printing_job = True
-                self.prev_layer_number = 0
                 self.slicer_values()
                 self._logger.info(f">>>+++ PrintStarted <<<<")
                 self._logger.info(f">>>+++ File ready: {self.processing_file}")
@@ -268,17 +266,18 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
         
 
         
-        def get_print_metadata(self, file_name):
+        def get_print_metadata(self, file_name): # Get the metadata from the metadata file of the job
             try:
                 self._logger.info(f">>>>>> Called get_print Metadata for {file_name}")
                 md = None
                 # Get all metadata 
                 md = self.load_metadata_from_json(file_name)
                 #self._logger.info(md)
-                if md is None:
+                if md is None: # If we don't have metadata, we can't send anything
                     self._logger.error(f"{self.get_current_function_name()}: Error retrieving metadata for {file_name}")
                     return False
                 
+                # If we have all the values we can send the info to the printer
                 self.file_name = md["file_name"]
                 self.file_path = md["file_path"]
                 self.total_layers = md["total_layers"]
@@ -288,7 +287,6 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self.progress = md["progress"]
                 self.b64_thumb = md["thumb_data"]
                 
-                    # If we have all the values we can send the info to the printer
                 self._logger.info(f"Sending Print Info")
                 self._logger.info(f"File selected: {self.file_name}")
                 self._logger.info(f"Print Time: {self.print_time}")
@@ -299,17 +297,17 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
                 # Send the print Info using custom O Command O9000 to the printer
                 self.send_O9000_cmd(f"SFN|{self.file_name}")
-                time.sleep(0.05)
+                time.sleep(0.1)
                 self.send_O9000_cmd(f"STL|{self.total_layers}")
-                time.sleep(0.05)
+                time.sleep(0.1)
                 self.send_O9000_cmd(f"SCL|{str(self.current_layer).rjust(7, ' ')}")
-                time.sleep(0.05)
+                time.sleep(0.1)
                 self.send_O9000_cmd(f"SPT|{self.print_time}")
-                time.sleep(0.05)
+                time.sleep(0.1)
                 self.send_O9000_cmd(f"SET|{self.print_time}")
-                time.sleep(0.05)
+                time.sleep(0.1)
                 self.send_O9000_cmd(f"SPP|{self.progress}")
-                time.sleep(0.05)
+                time.sleep(0.1)
                 self.send_O9000_cmd(f"SC|")
                         
                 # wait for the LCD to be ready        
@@ -317,15 +315,14 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     self._logger.info(f"Waiting for LCD to be ready, status: {self.is_lcd_ready}")
                     time.sleep(0.7)
                     
-                # Send the thumbnail to the printer LCD READY.    
+                # We got sucess answer from Printer    
                 self._logger.info(f">>>>>++++ LCD rendered all print info, sending GCode Thumbnail")
-                self.sent_metadata = True
+                self.sent_metadata = True # We have sent the metadata
                 time.sleep(0.2)
                 
-                if not self.sent_imagemap:
+                if not self.sent_imagemap: #check If we have already sent the imagemap
                     self.send_thumb_imagemap(self.b64_thumb, "O9002")
                 
-                return True
                     
             except Exception as e:
                 self._logger.error(f"{self.get_current_function_name()}:  {e}")
@@ -335,6 +332,9 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             
         def update_print_info(self, payload):  # Get info to Update
             self._logger.info(f">>>>>> E3v3seprintjobdetailsPlugin Update Print Details Info")
+            self._logger.info(f"Print Finish: {self.print_finish}")
+            self._logger.info(f"Printing Job: {self.printing_job}")
+            self._logger.info(f"LCD Ready: {self.is_lcd_ready}")
             
             if self.prev_layer_number != self.current_layer:
                 # Lets render the Progress based on what the user wants. Either Layer or Time progress or M73 cmd.
@@ -344,12 +344,12 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
                 elif self._settings.get(["progress_type"]) == "m73_progress": # Progress based on M73 command not sending anything since is updated by terminal interception.
                     self._logger.info(f"Progress based on M73 command")
-                    self.prev_layer_number = self.current_layer
                     return
                 else:
                     # Progress is kinda shitty when based on time, but its what it is
                     self.progress = (((self.print_time -self.print_time_left) /(self.print_time)) *100)
 
+                # Update Data when M73 is not configured
                 self._logger.info(f"Print Time: {self.print_time}")
                 self._logger.info(f"Print Time: {self.seconds_to_hms(self.print_time)}")
                 self._logger.info(f"Print Time Left: {self.print_time_left}")
@@ -380,17 +380,16 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     remaining_time_hms = f"{hours:02}:{minutes:02}:{seconds:02}"
 
                     # Log and send the progress and remaining time
-                    if self.progress == 0:
-                        self.print_time = remaining_minutes * 60
-                        self.print_time_left = remaining_minutes * 60
-                        self.current_layer = 0
-                        self.print_time_known = True
-                        self._logger.info(f"====++++====++++==== Intercepted M73 P0: Setting the Print Time as={remaining_time_hms}")
-                        self._logger.info(f"++++ M73 Set Print Time: {remaining_time_hms}")
-                        self._logger.info(f"++++ M73 Set Print Time Left: {remaining_time_hms}")
-                        self._logger.info(f"++++ M73 Set Current Layer: {self.current_layer}")
-                        self.send_O9000_cmd(f"SPT|{remaining_time_hms}")
-                    elif self.progress > 0 and self.send_m73:
+                    # if self.progress == 0:
+                    #     #self.print_time = remaining_minutes * 60
+                    #     #self.print_time_left = remaining_minutes * 60
+                    #     self.current_layer = 0
+                    #     self._logger.info(f"====++++====++++==== Intercepted M73 P0: Setting the Print Time as={remaining_time_hms}")
+                    #     self._logger.info(f"++++ M73 Set Print Time: {remaining_time_hms}")
+                    #     self._logger.info(f"++++ M73 Set Print Time Left: {remaining_time_hms}")
+                    #     self._logger.info(f"++++ M73 Set Current Layer: {self.current_layer}")
+                    #     self.send_O9000_cmd(f"SPT|{remaining_time_hms}")
+                    if self.progress > 0 and self.send_m73:
                         self._logger.info(f"====++++====++++==== Intercepted M73: Progress={self.progress}%, Remaining Time={remaining_time_hms}")
                         if self.prev_layer_number != self.current_layer:
                             self._logger.info(f"M73-O9001 Update: Progress={self.progress}%, ETA={remaining_time_hms}, Layer={self.current_layer}")
@@ -411,11 +410,11 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 else:
                     self.current_layer += 1  # If no number inc manually
 
-                # send the layer number
-                if self.printing_job:
-                    self._logger.info(f"====++++====++++==== Layer Number: {self.current_layer}")
+                # Log the Layer Number
+                self._logger.info(f"====++++====++++==== Layer Number: {self.current_layer}")
 
-            # Ignoring any other M117 cmd if enabled
+
+            # Handling M117 commands
             elif cmd.startswith("M117"):
                 # We want to write the cancelled MSG
                 if cmd == "M117 Print is cancelled" or cmd == "M117 Print was cancelled":
@@ -494,23 +493,23 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 return "00:00:00"
 
 
-        def find_total_layers(self, file_path):
-            # Find the Total Layer string in GCODE
-            try:
-                with open(file_path, "r") as gcode_file:
-                    for line in gcode_file:
-                        if "; total layer number:" in line:
-                            # Extract total layers if Orca Generated
-                            self.total_layers = line.strip().split(":")[-1].strip()
-                            return self.total_layers
-                        elif ";LAYER_COUNT:" in line:
-                            # Extract total layers if Cura Generated
-                            self.total_layers = line.strip().split(":")[-1].strip()
-                            return self.total_layers
-            except Exception as e:
-                self._logger.error(f"{self.get_current_function_name()}: Error reading file {file_path}: {e}")
-                return None
-            return None
+        # def find_total_layers(self, file_path):
+        #     # Find the Total Layer string in GCODE
+        #     try:
+        #         with open(file_path, "r") as gcode_file:
+        #             for line in gcode_file:
+        #                 if "; total layer number:" in line:
+        #                     # Extract total layers if Orca Generated
+        #                     self.total_layers = line.strip().split(":")[-1].strip()
+        #                     return self.total_layers
+        #                 elif ";LAYER_COUNT:" in line:
+        #                     # Extract total layers if Cura Generated
+        #                     self.total_layers = line.strip().split(":")[-1].strip()
+        #                     return self.total_layers
+        #     except Exception as e:
+        #         self._logger.error(f"{self.get_current_function_name()}: Error reading file {file_path}: {e}")
+        #         return None
+        #     return None
         
 
         # send the preview to LCD
@@ -519,35 +518,35 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             if b64:
                 self._logger.info("Thumbnail data found in the file.")
                 self._logger.info(f"Thumbnail data: {b64}")
-                # Decode Base64 and send it to Marlin
-                img = self.decode_base64_image(b64[0])
-                pixel_data = self.get_pixel_data(img)
+                img = self.decode_base64_image(b64[0]) # Decode Base64 and send it to Marlin
+                pixel_data = self.get_pixel_data(img) # Get the pixel data
                 self._logger.info(f"Pixel data length: {len(pixel_data)}")
                 # Ensure the pixel_data has the correct size for a 96x96 image
                 expected_size = 0
                 if o_cmd == "O9002":
-                    expected_size = 96 * 96
+                    expected_size = 96 * 96 # Gcode Thumbnail
                 else:
-                    expected_size = 26 * 240
+                    expected_size = 26 * 240 # OctoPrint Logo
                 
-                if len(pixel_data) != expected_size:
+                if len(pixel_data) != expected_size: # Check if the size is correct
                     raise ValueError(f"{self.get_current_function_name()}: Expected pixel data size {expected_size}, but got {len(pixel_data)}")
                 
-                self.send_image_to_marlin(pixel_data, o_cmd)
+                self.send_image_to_marlin(pixel_data, o_cmd) # Send the pixel data to Marlin
             else:
                 self._logger.warning("Thumbnail data not found in the file.")
                 return    
        
-            
+        # Send the pixel data to Marlin    
         def send_image_to_marlin(self, pixel_data, o_cmd):
             self._printer.pause_print() #TODO check if this pause is necessary  
-            chunk_size = 12  # Adjust as needed to stay below the 64-byte limit
+            chunk_size = 12  # Above 12, Marlin starts to drop data
             self._logger.info(f"Sending Pixel Data to Marlin using CHUNKs of {chunk_size}")
             
             try:
-                # Send final end-of-data command
+                # Send the start command
                 self._printer.commands(f"{o_cmd} START 96 96")
                 time.sleep(0.2)
+                # Send the pixel data in chunks
                 for i in range(0, len(pixel_data), chunk_size):
                     chunk = pixel_data[i:i + chunk_size]
                     # Create a command with a chunk offset followed by pixel data
@@ -560,17 +559,20 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             
                 self._logger.info("Pixel Data sent successfully to Marlin")
                 self._logger.info("Resuming the print job")
-                self.processing_file = False
-                self.marlin_finished = True
-                self.sent_imagemap = True
+                self.processing_file = False # Release the file
+                self.marlin_finished = True # Flag that Marlin has finished processing the image
+                self.sent_imagemap = True # Flag that we have sent the imagemap
                 
-                if self._printer.is_paused():
+                if self._printer.is_paused(): # Resume the print job
                     self._logger.info(">>> Printer is paused. Resuming print job now.")
                     self._printer.resume_print()
                 
                 
             except Exception as e:
                 self._logger.error(f"{self.get_current_function_name()}: Error sending pixel data to Marlin: {e}")
+            finally:
+                self._logger.info("Closing UI Popup")
+                self._plugin_manager.send_plugin_message(self._identifier, dict(type="close_popup"))    
                         
 
         # Decode Base64 image to raw pixel data
@@ -629,7 +631,6 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                         self.print_time = remaining_time_hms
                         self.print_time_left = remaining_time_hms
                         self.current_layer = 0
-                        self.print_time_known = True
                         return self.progress, remaining_time_hms
             return 0, "00:00:00"
 
@@ -666,7 +667,6 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             #self.plugin_data_folder = None
             #self.metadata_dir = None
             self.prev_print_time_left = None
-            self.prev_layer_number = None
             self.start_time = None
             self.elapsed_time = None
             self.file_name = None
@@ -681,6 +681,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             self.printing_job = False
             self.is_lcd_ready = False
             self.counter = 0
+            self.prev_layer_number = 0
             self.current_layer = 0
             self.total_layers = 0
             self.print_finish = False

@@ -12,16 +12,15 @@ $(function() {
                 return;
             }
 
-            if (data.action === "disable_print_button") {
-                if (data.status === "start") {
-                    // Disable the print button and show loading animation
-                    printButton.prop("disabled", true);
-                    printButton.html('<i class="fa fa-spinner fa-spin"></i> Loading...');
-                } else if (data.status === "end") {
-                    // Enable the print button and restore original text
-                    printButton.prop("disabled", false);
-                    printButton.html('Print');
-                }
+            if (data.type === "popup") {
+                new PNotify({
+                    title: 'E3v3seprintjobdetails',
+                    text: data.message,
+                    type: 'info',
+                    hide: true
+                });
+            } else if (data.type === "close_popup") {
+                PNotify.removeAll();
             }
         };
     }
