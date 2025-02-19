@@ -250,17 +250,20 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     
                             
             if event == "ZChange":  # Update the info every Z change
-                self._logger.info(f">>>>>> ZChange with:")
-                self._logger.info(f"Print Finish: {self.print_finish}")
-                self._logger.info(f"Printing Job: {self.printing_job}")
-                self._logger.info(f"LCD Ready: {self.is_lcd_ready}")
+                #self._logger.info(f">>>>>> ZChange with:")
+                #self._logger.info(f"Print Finish: {self.print_finish}")
+                #self._logger.info(f"Printing Job: {self.printing_job}")
+                #self._logger.info(f"LCD Ready: {self.is_lcd_ready}")
                 
                 if not self.print_finish: 
                     if self.printing_job and self.is_lcd_ready:
                         if self._settings.get(["progress_type"]) != "m73_progress" and self.counter == 0:
                             #Not M73 print, we get the time from the printer job and set it
-                            self.print_time = self._printer.get_current_data().get("job", {}).get("estimatedPrintTime", "00:00:00")
+                            self._logger.info(f"Getting the time from the printer job and setting it")                
+                            self.print_time = self._printer.get_current_data().get("job", {}).get("estimatedPrintTime")
                             self.print_time_left = self.print_time
+                            self._logger.info(f"Print Time: {self.print_time}")
+                            self._logger.info(f"Print Time Left: {self.print_time_left}")
                             self.send_O9000_cmd(f"UPT|{self.seconds_to_hms(self.print_time)}")
                             self.send_O9001_cmd(f"O9001|ET:{self.seconds_to_hms(self.print_time_left)}|PG:{self.progress}|CL:{str(self.total_layers).rjust(7, ' ')}")
                             self.counter += 1
@@ -349,15 +352,25 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             
         def update_print_info(self, payload):  # Get info to Update
             self._logger.info(f">>>>>> E3v3seprintjobdetailsPlugin Update Print Details Info")
-            self._logger.info(f"Print Finish: {self.print_finish}")
-            self._logger.info(f"Printing Job: {self.printing_job}")
-            self._logger.info(f"LCD Ready: {self.is_lcd_ready}")
+            #self._logger.info(f"Print Finish: {self.print_finish}")
+            #self._logger.info(f"Printing Job: {self.printing_job}")
+            #self._logger.info(f"LCD Ready: {self.is_lcd_ready}")
             
-            if self.prev_layer_number != self.current_layer:
+            #self._logger.info(f"full data: {self._printer.get_current_data()}")
+            #get the Latest Data
+            if self.counter < 3:
+                self.print_time = self._printer.get_current_data().get("job", {}).get("estimatedPrintTime")
+                self.send_O9000_cmd(f"UPT|{self.seconds_to_hms(self.print_time)}")
+                self.counter += 1
+            
+            
+            self.print_time_left = self._printer.get_current_data().get("progress", {}).get("printTimeLeft")
+                        
+            if (self.prev_print_time_left != self.print_time_left or self.prev_layer_number != self.current_layer):
                 # Lets render the Progress based on what the user wants. Either Layer or Time progress or M73 cmd.
                 if self._settings.get(["progress_type"]) == "layer_progress":
                     # Progress is based on the layer
-                    self.progress = (int(self.current_layer) *100 ) /int(self.total_layers)
+                    self.progress = (int(self.current_layer) * 100 ) /int(self.total_layers)
 
                 elif self._settings.get(["progress_type"]) == "m73_progress": # Progress based on M73 command not sending anything since is updated by terminal interception.
                     self._logger.info(f"Progress based on M73 command")
@@ -366,6 +379,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     # Progress is kinda shitty when based on time, but its what it is
                     self.progress = (((self.print_time -self.print_time_left) /(self.print_time)) *100)
 
+                 
                 # Update Data when M73 is not configured
                 self._logger.info(f"Print Time: {self.print_time}")
                 self._logger.info(f"Print Time: {self.seconds_to_hms(self.print_time)}")
@@ -376,6 +390,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
                 # Send the print Info using custom O Command O9001 to the printer
                 self.prev_layer_number = self.current_layer
+                self.prev_print_time_left = self.print_time_left
                 self.myETA = self.seconds_to_hms(self.print_time_left)
                 self._logger.info(f"O9001|ET:{self.myETA}|PG:{self.progress}|CL:{str(self.current_layer).rjust(7, ' ')}")
 
@@ -395,28 +410,19 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     hours, minutes = divmod(remaining_minutes, 60)
                     seconds = 0
                     remaining_time_hms = f"{hours:02}:{minutes:02}:{seconds:02}"
-
-                    # Log and send the progress and remaining time
-                    # if self.progress == 0:
-                    #     #self.print_time = remaining_minutes * 60
-                    #     #self.print_time_left = remaining_minutes * 60
-                    #     self.current_layer = 0
-                    #     self._logger.info(f"====++++====++++==== Intercepted M73 P0: Setting the Print Time as={remaining_time_hms}")
-                    #     self._logger.info(f"++++ M73 Set Print Time: {remaining_time_hms}")
-                    #     self._logger.info(f"++++ M73 Set Print Time Left: {remaining_time_hms}")
-                    #     self._logger.info(f"++++ M73 Set Current Layer: {self.current_layer}")
-                    #     self.send_O9000_cmd(f"SPT|{remaining_time_hms}")
                     if self.progress > 0 and self.send_m73:
                         self._logger.info(f"====++++====++++==== Intercepted M73: Progress={self.progress}%, Remaining Time={remaining_time_hms}")
                         if self.prev_layer_number != self.current_layer:
                             self._logger.info(f"M73-O9001 Update: Progress={self.progress}%, ETA={remaining_time_hms}, Layer={self.current_layer}")
                             comm_instance._command_queue.put(f"O9001|ET:{remaining_time_hms}|PG:{self.progress}|CL:{str(self.current_layer).rjust(7, ' ')}")
 
+
             # Detect the Layer Change
             if cmd.startswith("G1") and "Z" in cmd and self._settings.get(["progress_type"]) != "m73_progress":
-                if self.prev_layer_number != self.current_layer:
+                if (self.prev_print_time_left != self.print_time_left or self.prev_layer_number != self.current_layer):
                     self._logger.info(f"N-O9001 Update: Progress={self.progress}%, ETA={self.myETA}, Layer={self.current_layer}")
                     comm_instance._command_queue.put(f"O9001|ET:{self.myETA}|PG:{self.progress}|CL:{str(self.current_layer).rjust(7, ' ')}")
+
 
             # Catch Commands to search the below...
             layer_comment_match = re.match(r"M117 DASHBOARD_LAYER_INDICATOR (\d+)", cmd)
@@ -565,7 +571,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             if b64:
                 self._logger.info("Thumbnail data found in the file.")
                 self._logger.info(f"Thumbnail data: {b64}")
-                img = self.decode_base64_image(b64[0]) # Decode Base64 and send it to Marlin
+                img = self.decode_base64_image(b64) # Decode Base64 and send it to Marlin
                 pixel_data = self.get_pixel_data(img) # Get the pixel data
                 self._logger.info(f"Pixel data length: {len(pixel_data)}")
                 # Ensure the pixel_data has the correct size for a 96x96 image
@@ -694,31 +700,65 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
 
         def extract_thumbnail_from_content(self, file_content):
-            thumbnails = []
+            thumbnail = None
             collecting = False
             current_thumbnail = []
+            slicer_type = None  # Track which slicer generated the GCODE
 
             for line in file_content.splitlines():
                 line = line.strip()  # Remove leading/trailing whitespace
-                
-                if line.startswith("; THUMBNAIL_BLOCK_START"):
-                    collecting = False  # Reset flag in case of multiple blocks
 
-                if collecting:
-                    if line.startswith("; thumbnail_JPG end"):
-                        thumbnails.append("".join(current_thumbnail))
-                        current_thumbnail = []
-                        collecting = False
-                        continue  # Stop collecting until next valid block
-                    else:
-                        # Remove leading "; " before storing data
-                        cleaned_line = line.lstrip("; ").rstrip()
-                        current_thumbnail.append(cleaned_line)
+                # Detect Slicer Type
+                if "; generated by OrcaSlicer" in line:
+                    slicer_type = "OrcaSlicer"
+                    self._logger.info("OrcaSlicer detected in GCODE content")
 
-                if line.startswith("; thumbnail_JPG begin 96x96"):
-                    collecting = True  # Start collecting
+                elif ";Generated with Cura" in line:
+                    slicer_type = "Cura"
+                    self._logger.info("Cura detected in GCODE content")
 
-            return thumbnails
+                # Extract thumbnail based on detected slicer
+                if slicer_type == "OrcaSlicer":
+                    if line == "; THUMBNAIL_BLOCK_START":
+                        collecting = False  # Reset flag before starting a new block
+                        current_thumbnail = []  # Reset buffer
+
+                    if line.startswith("; thumbnail_JPG begin 96x96") or line.startswith("; thumbnail_PNG begin 96x96"):
+                        self._logger.info("Start collecting OrcaSlicer thumbnail")
+                        collecting = True
+                        continue  # Skip this line, just marking the start
+
+                    if collecting:
+                        if line.startswith("; thumbnail_JPG end") or line.startswith("; thumbnail_PNG end"):
+                            self._logger.info("End collecting OrcaSlicer thumbnail")
+                            collecting = False
+                            thumbnail = "".join(current_thumbnail)  # Save Base64 data
+                            break  # Stop after first valid thumbnail
+                        else:
+                            current_thumbnail.append(line.lstrip("; ").rstrip())
+
+                elif slicer_type == "Cura":
+                    if line.startswith("; thumbnail begin 96x96"):
+                        self._logger.info("Cura thumbnail detected, starting collection")
+                        collecting = True
+                        current_thumbnail = []  # Reset buffer
+                        continue  # Skip this line, just marking the start
+
+                    if collecting:
+                        if line.startswith("; thumbnail end"):
+                            self._logger.info("End collecting Cura thumbnail")
+                            collecting = False
+                            thumbnail = "".join(current_thumbnail)  # Save Base64 data
+                            break  # Stop after first valid thumbnail
+                        else:
+                            current_thumbnail.append(line.lstrip("; ").rstrip())
+
+            if thumbnail:
+                self._logger.info(f"Extracted thumbnail, size: {len(thumbnail)} characters")
+            else:
+                self._logger.warning("No valid thumbnail found in GCODE")
+
+            return thumbnail  # Returns Base64 string or None if not found
 
 
         def cleanup(self):
