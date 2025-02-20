@@ -119,6 +119,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             self._plugin_logger.info(f"Sliders values:")
             self._plugin_logger.info(f"Enable O9000 Commands: {self._settings.get(['enable_o9000_commands'])}")
             self._plugin_logger.info(f"Progress based on: {self._settings.get(['progress_type'])}")
+            self._plugin_logger.info(f"Send Gcode Preview: {self._settings.get(['enable_gcode_preview'])}")
 
 
         # save metadata of the file
@@ -227,6 +228,14 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
             if event == "FileSelected":  # If file selected gather all data
                 try:
+                    # If Preview is disabled, we need to send the default thumbnail
+                    if self._settings.get(["enable_gcode_preview"]):
+                        self._plugin_logger.info("Sending command to render Gcode thumbnail")
+                        self.send_O9000_cmd("OFFGPIC|")
+                    else:
+                        self._plugin_logger.info("Sending command to render default thumbnail")
+                        self.send_O9000_cmd("ONGPIC|")
+                                            
                     self.file_name = payload.get("name")
                     self.file_path = payload.get("path")
                     
@@ -359,7 +368,9 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     if not self.sent_imagemap: #check If we have already sent the imagemap
                         self.send_thumb_imagemap(self.b64_thumb, "O9002")
                 else:
-                    self._plugin_logger.info("GCode Preview is disabled, skipping the GCode Thumbnail")
+                    self._plugin_logger.info("GCode Preview is disabled, skipping the GCode Thumbnail Transfer")
+                    self._plugin_logger.info("Sending command to render default thumbnail")
+                    self.send_O9000_cmd("ONGPIC|")
                     self.processing_file = False # Release the file
                     return True
                     
