@@ -45,7 +45,11 @@ Also I wanted to go a little bit further, since I'm using [Octoprint](https://oc
 >First you need to flash creality firmware version 1.0.6. and the TFT files for the display.
 >If your printer is already in that version you can do it directly.
 >
->From: [Latest Release of Printer's Firmware](https://github.com/navaismo/Ender-3V3-SE) download the ZIP that fits your Octoprint configuration, recommended 150000 baud rate.
+>From: [Latest Release of Printer's Firmware without Gcode Preview](https://github.com/navaismo/Ender-3V3-SE) download the ZIP that fits your Octoprint configuration, recommended 150000 baud rate.
+>
+> or
+>
+>From: [Latest Release of Printer's Firmware with Gcode Preview](https://github.com/navaismo/Ender-3V3-SE-Gcode-Preview) download the ZIP that fits your Octoprint configuration, recommended 150000 baud rate.
 >
 >Unzip and:
 >
