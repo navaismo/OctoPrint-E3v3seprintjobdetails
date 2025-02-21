@@ -378,28 +378,33 @@ TL;DR: Because rendering the LCD will affect your print quality.
 Take a look on the [Issue #7](https://github.com/navaismo/OctoPrint-E3v3seprintjobdetails/issues/7) to get the full backgorund of why the Real Time response was removed.
 
 <br>
+
 <p style="color: orange;"> <b>2.</b> Do I need Octoprint to work with this? </p>
 No, the common feeatures works for both, you just will see the stock LCD Layout. The new layout with Gcode Preview, Layer count etc. Will be render only using Octoprint.
 
 
 <br>
+
 <p style="color: orange;"> <b>3.</b> Why you don't Increase the connection Baud Rate? </p>
 TL;DR: Because printer cannot handle communication above 150000.
 
 Take a look on the [Issue #5](https://github.com/navaismo/Ender-3V3-SE/issues/5) to get the full backgorund.
 
 <br>
+
 <p style="color: orange;"> <b>4.</b> Got a leveling error? </p>
 This error is only present when using Octoprint and is expected since you flashed a new Grid with no values. So after flashing the new firmware start a new fresh level procedure and then connect Octoprint again.
 
 
 <br>
+
 <p style="color: orange;"> <b>5.</b> Why the Render of GCcode Preview takes so much time? & Why there is no Gcode Preview without Octoprint?</p>
 TL;DR: Because LCD is closed and we haven't found it it has a SRAM to store images. An thats why is only supported by Octoprint and not stand alone. To process the image and send it.
 
 Take a look on [this Discussion](https://github.com/navaismo/Ender-3V3-SE/discussions/28) to see the efforts. Eduard and I spent a lot of time trying to find an Address with no luck.
 
 <br>
+
 <p style="color: orange;"> <b>6.</b> Sometimes when Thumbnail Enabled the printer pauses and has weird movement behaviour before the print starts?</p>
 This is because the plugin programaticaly pauses the print job until the Thumbnail is rendered, to avoid affect the print quality.
 
@@ -407,9 +412,11 @@ It is recommended to Load the file first and then click on Print.
 If is a direct print, is recommended to preheat the filament so the transmission will start faster, else it will wait till nozzle reach the temperature.
 
 <br>
+
 <p style="color: orange;"> <b>7.</b> Sometimes when the thumb is disabled an loaded the Job in LCD I see the Default image dissapearing slowly while the other is rendering. Can you just clean the LCD?</p>
 This is a personal decision, I like a lot to see how the Creality Man dissapear slowly, it brings me peace.
 
 <br>
+
 <p style="color: orange;"> <b>8.</b> Sometimes in the Tune Menu appears the Nozzle and Bed Icons, Why?</p>
 This is beacuse the encoder/Knob is moved too fast and enter in an unknow state that by default try to render the lower info area. If you move it slowly this will no appear.

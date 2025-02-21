@@ -1,7 +1,6 @@
 # Coding=utf 8
 from __future__ import absolute_import
 from PIL import Image 
-
 from octoprint.logging.handlers import CleaningTimedRotatingFileHandler
 import io
 import os
@@ -67,6 +66,12 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
         def configure_logger(self):
             # Get the base path for logs from the settings
             log_base_path = os.path.expanduser("~/.octoprint/logs")
+            
+            # Create the directory if it doesn't exist
+            if not os.path.exists(log_base_path):
+                os.makedirs(log_base_path, exist_ok=True)
+                os.chmod(log_base_path, 0o775)
+            
             log_file_path = os.path.join(log_base_path, "E3v3seprintjobdetails.log")
             handler = CleaningTimedRotatingFileHandler(log_file_path, when="D", backupCount=3)
             handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
