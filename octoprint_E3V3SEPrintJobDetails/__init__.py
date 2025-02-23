@@ -871,7 +871,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
 
 __plugin_pythoncompat__ = ">=3,<4"  # Only Python 3
-__plugin_version__ = "0.0.2.0"
+__plugin_version__ = "0.0.2.1"
 
 
 def __plugin_load__():
