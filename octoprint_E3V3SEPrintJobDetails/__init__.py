@@ -138,6 +138,10 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             
             except Exception as e:
                 self._plugin_logger.error(f"{self.get_current_function_name()}: Failed to save metadata to {metadata_path}: {e}") 
+                self._plugin_manager.send_plugin_message(self._identifier, dict(type="close_popup"))
+                self._plugin_manager.send_plugin_message(self._identifier, {"type":"error_popup", "message":"Error Ocurred {e} try uploading the file again"})
+                
+                return None
                 
         # load metadata file                             
         def load_metadata_from_json(self, filename):
@@ -151,6 +155,9 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 return metadata
             except Exception as e:
                 self._plugin_logger.error(f"{self.get_current_function_name()}: Failed to load metadata from {metadata_path}: {e}")
+                self._plugin_manager.send_plugin_message(self._identifier, dict(type="close_popup"))
+                self._plugin_manager.send_plugin_message(self._identifier, {"type":"error_popup", "message":"Error Ocurred {e} try uploading the file again"})
+                
                 return None
             
 
@@ -229,7 +236,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 
             if event == "PrintCancelled":  # clean variables after cancellation
                 self.cleanup()
-                self.print_finish = True
+                #self.print_finish = True
 
             if event == "FileSelected":  # If file selected gather all data
                 try:
@@ -269,6 +276,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
             if event == "PrintStarted": #Job Print Started
                 self.printing_job = True
+                self.print_finish = False
                 self.slicer_values()
                 self._plugin_logger.info(f">>>+++ PrintStarted <<<<")
                 self._plugin_logger.info(f">>>+++ File ready: {self.processing_file}")
@@ -283,23 +291,18 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     
                             
             if event == "ZChange":  # Update the info every Z change
-                #self._plugin_logger.info(f">>>>>> ZChange with:")
-                #self._plugin_logger.info(f"Print Finish: {self.print_finish}")
-                #self._plugin_logger.info(f"Printing Job: {self.printing_job}")
-                #self._plugin_logger.info(f"LCD Ready: {self.is_lcd_ready}")
-                
+                self._plugin_logger.info(f">>>>>> ZChange with:")
+                self._plugin_logger.info(f"Print Finish: {self.print_finish}")
+                self._plugin_logger.info(f"Printing Job: {self.printing_job}")
+                self._plugin_logger.info(f"LCD Ready: {self.is_lcd_ready}")
+                self._plugin_logger.info(f"Counter: {self.counter}")
+               
                 if not self.print_finish: 
                     if self.printing_job and self.is_lcd_ready:
                         if self._settings.get(["progress_type"]) != "m73_progress" and self.counter == 0:
-                            #Not M73 print, we get the time from the printer job and set it
-                            self._plugin_logger.info(f"Getting the time from the printer job and setting it")                
-                            self.print_time = self._printer.get_current_data().get("job", {}).get("estimatedPrintTime")
-                            self.print_time_left = self.print_time
-                            self._plugin_logger.info(f"Print Time: {self.print_time}")
-                            self._plugin_logger.info(f"Print Time Left: {self.print_time_left}")
+                            self.get_job_details();  # Get the job details
                             self.send_O9000_cmd(f"UPT|{self.seconds_to_hms(self.print_time)}")
                             self.send_O9001_cmd(f"O9001|ET:{self.seconds_to_hms(self.print_time_left)}|PG:{self.progress}|CL:{str(self.total_layers).rjust(7, ' ')}")
-                            self.counter += 1
                         
                         #we are ready for updates
                         self.update_print_info(payload)        
@@ -313,6 +316,21 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self.print_finish = True
         
 
+
+        def get_job_details(self):
+            #Not M73 print, we get the time from the printer job and set it
+            self._plugin_logger.info(f"Getting the time from the printer job and setting it")                
+            self.print_time = self._printer.get_current_data().get("job", {}).get("estimatedPrintTime")
+            
+            if self._settings.get(["progress_type"]) != "m73_progress":
+                self._plugin_logger.info(f"converting {self.print_time} time to H:M:S")
+                self.print_time = self.seconds_to_hms(self.print_time)
+            
+            self.print_time_left = self.myETA = self.print_time
+            #self._plugin_logger.info(f"Print Time: {self.print_time}")
+            #self._plugin_logger.info(f"Print Time Left: {self.print_time_left}")
+            self.counter += 1
+
         
         def get_print_metadata(self, file_name): # Get the metadata from the metadata file of the job
             try:
@@ -323,7 +341,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 #self._plugin_logger.info(md)
                 if md is None: # If we don't have metadata, we can't send anything
                     self._plugin_logger.error(f"{self.get_current_function_name()}: Error retrieving metadata for {file_name}")
-                    return False
+                    return None
                 
                 # If we have all the values we can send the info to the printer
                 self.file_name = md["file_name"]
@@ -335,6 +353,10 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self.progress = md["progress"]
                 self.b64_thumb = md["thumb_data"]
                 
+                if self._settings.get(["progress_type"]) != "m73_progress" and self.print_time == "00:00:00":
+                    self._plugin_logger.info(f"Print Time is 00:00:00, getting the time from the printer job")
+                    self.get_job_details()
+                    
                 self._plugin_logger.info(f"Sending Print Info")
                 self._plugin_logger.info(f"File selected: {self.file_name}")
                 self._plugin_logger.info(f"Print Time: {self.print_time}")
@@ -387,10 +409,6 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             
         def update_print_info(self, payload):  # Get info to Update
             self._plugin_logger.info(f">>>>>> E3v3seprintjobdetailsPlugin Update Print Details Info")
-            #self._plugin_logger.info(f"Print Finish: {self.print_finish}")
-            #self._plugin_logger.info(f"Printing Job: {self.printing_job}")
-            #self._plugin_logger.info(f"LCD Ready: {self.is_lcd_ready}")
-            
             #self._plugin_logger.info(f"full data: {self._printer.get_current_data()}")
             #get the Latest Data
             if self.counter < 3:
@@ -622,6 +640,10 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self.send_image_to_marlin(pixel_data, o_cmd) # Send the pixel data to Marlin
             else:
                 self._plugin_logger.warning("Thumbnail data not found in the file.")
+                self._plugin_manager.send_plugin_message(self._identifier, dict(type="close_popup"))
+                self.processing_file = True # Release the file
+                self.marlin_finished = True # Flag that Marlin has finished processing the image
+                self.sent_imagemap = True # Flag that we have sent the imagemap
                 return    
        
         # Send the pixel data to Marlin    
@@ -825,6 +847,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             self.printer_busy = False
             self.get_last_chunk = False
             self.chunk_index = 0
+            return
            
 
 
