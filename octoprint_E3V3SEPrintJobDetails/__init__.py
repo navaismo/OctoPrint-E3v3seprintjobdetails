@@ -59,6 +59,8 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             self.printer_busy = False
             self.get_last_chunk = False
             self.chunk_index = 0
+            self.txLine = None
+            self.nextLineAck = False
             # Initialize custom logger
             self._plugin_logger = logging.getLogger("octoprint.plugins.E3v3seprintjobdetails")
 
@@ -542,7 +544,12 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                         # get the index of chunk O9002 CHUNK 660|0,0,0,0,0,0,0,0,0,0,0,0, 660 is the index
                         self.chunk_index = int(line.split("|")[0].split(" ")[2])
                                               
-                    return line            
+                    return line   
+                
+                elif f"ACK LINE {self.txLine}" in line: #Waiting ACK from Marlin
+                    self._plugin_logger.info(f"ACK LINE {self.txLine} received")
+                    self.nextLineAck = True
+                    return line         
             
             
             # Check if we receive //action:notification Bed Heating... and set var to true
@@ -646,45 +653,59 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self.sent_imagemap = True # Flag that we have sent the imagemap
                 return    
        
-        # Send the pixel data to Marlin    
+    
+                    
         def send_image_to_marlin(self, pixel_data, o_cmd):
-            self._printer.pause_print() #TODO check if this pause is necessary  
+            self._printer.pause_print()  # TODO: Check if this pause is necessary  
             chunk_size = 12  # Above 12, Marlin starts to drop data
             self._plugin_logger.info(f"Sending Pixel Data to Marlin using CHUNKs of {chunk_size}")
             
             try:
-                # Send the start command
-                self._printer.commands(f"{o_cmd} START 96 96")
+                self._printer.commands(f"{o_cmd} START 96 96")  # Start transmission
                 time.sleep(0.2)
-                # Send the pixel data in chunks
-                for i in range(0, len(pixel_data), chunk_size):
-                    chunk = pixel_data[i:i + chunk_size]
-                    # Create a command with a chunk offset followed by pixel data
-                    command = f"{o_cmd} CHUNK {i}|{','.join(map(str, chunk))}"
-                    
-                    # Wait if the printer is busy
-                    while self.printer_busy:
-                        #self._plugin_logger.info("Printer is busy, waiting...")
-                        time.sleep(2)
-                    
-                    if self._printer.is_printing():
-                        self._printer.pause_print()
-                        #self._plugin_logger.info("Pausing again to finish Image Transmission...")
+
+                # Process one line at a time
+                for line in range(96):  
+                    self.txLine = line
+                    start_idx = line * 96
+                    line_data = pixel_data[start_idx:start_idx + 96]
+
+                    # Send the line in chunks of 12
+                    for i in range(0, len(line_data), chunk_size):
+                        chunk = line_data[i:i + chunk_size]
+                        command = f"{o_cmd} CHUNK {line},{i}|{','.join(map(str, chunk))}"
+
+                        # Wait if the printer is busy
+                        while self.printer_busy:
+                            time.sleep(2)
+
+                        if self._printer.is_printing():
+                            self._printer.pause_print()
                         
-                    self._printer.commands(command)  # Send the chunk command to Marlin
-                    time.sleep(0.06)  # Small delay to avoid overflowing Marlin's buffer
-                
-                # Send final end-of-data command
+                        # Send the chunk command to Marlin
+                        self._printer.commands(command)
+                        time.sleep(0.07)  # Avoid overflowing Marlin’s buffer
+
+                    # **Wait for ACK from Marlin** before sending the next line
+                    #self._plugin_logger.info(f"Waiting for ACK for line {line}")
+                    while True:
+                        # Read response from the printer (ACK message)
+                        
+                        if self.nextLineAck:
+                            self.nextLineAck = False
+                            # self._plugin_logger.info(f"Received ACK for line {self.txLine}")
+                            break  # Proceed to next line once the ACK is received
+                        time.sleep(0.1)  # Small delay before checking again
+
+                # Send final END command to Marlin
                 self._printer.commands(f"{o_cmd} END")
-            
                 self._plugin_logger.info("Pixel Data sent successfully to Marlin")
                 time.sleep(0.2)
-                
+
             except Exception as e:
-                self._plugin_logger.error(f"{self.get_current_function_name()}: Error sending pixel data to Marlin: {e}")
-            #finally:
-                    
-                        
+                self._plugin_logger.error(f"Error sending pixel data to Marlin: {e}")
+
+
 
         # Decode Base64 image to raw pixel data
         def decode_base64_image(self, b64_string):
@@ -847,6 +868,8 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             self.printer_busy = False
             self.get_last_chunk = False
             self.chunk_index = 0
+            self.txLine = None
+            self.nextLineAck = False
             return
            
 
@@ -871,7 +894,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
 
 __plugin_pythoncompat__ = ">=3,<4"  # Only Python 3
-__plugin_version__ = "0.0.2.1"
+__plugin_version__ = "0.0.2.2"
 
 
 def __plugin_load__():
