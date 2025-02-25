@@ -225,7 +225,7 @@ _In this section is **important to add the last M117 command** it will help to c
 >{% endif %}
 >```
 
-Of course you can change it to your desired behaviour above are just wroking eamples in my setup.
+Of course you can change it to your desired behaviour above are just working examples in my setup.
 
 <br>
 
@@ -244,7 +244,7 @@ _M177 has a basic implementation and I'm not planning on improve M117 messages_
 <br>
 
 ### * Configure The GCODE Preview transmission.
-If you installed the firmware from the [Repo that Enable the Gcode Preview Using Octoprint](), enble the slicer so the plugin can send it to the LCD.
+If you installed the firmware from the [Repo that Enable the Gcode Preview Using Octoprint](), enable the slicer so the plugin can send it to the LCD.
 
 > [!IMPORTANT]
 >
@@ -369,43 +369,56 @@ If you installed the firmware from the [Repo that Enable the Gcode Preview Using
 <br>
 
 
+
 # FAQS
 Most of the questions has been answered in the Issue section of the Repo but here are the most common:
 
-<p style="color: orange;"> <b>1.</b> Why I don't see the updates in real time on the LCD? </p>
-TL;DR: Because rendering the LCD will affect your print quality.
+```diff
++ 1. Why I don't see the updates in real time on the LCD?
+```
+ TL;DR: Because rendering the LCD will affect your print quality.
 
-Take a look on the [Issue #7](https://github.com/navaismo/OctoPrint-E3v3seprintjobdetails/issues/7) to get the full backgorund of why the Real Time response was removed.
+ Take a look on the [Issue #7](https://github.com/navaismo/OctoPrint-E3v3seprintjobdetails/issues/7) to get the full backgorund of why the Real Time response was removed.
 
 <br>
 
-<p style="color: orange;"> <b>2.</b> Do I need Octoprint to work with this? </p>
+```diff
++ 2. Do I need Octoprint to work with this?
+```
 No, the common feeatures works for both, you just will see the stock LCD Layout. The new layout with Gcode Preview, Layer count etc. Will be render only using Octoprint.
 
-
 <br>
 
-<p style="color: orange;"> <b>3.</b> Why you don't Increase the connection Baud Rate? </p>
+```diff
++ 3. Why you don't Increase the connection Baud Rate?
+```
 TL;DR: Because printer cannot handle communication above 150000.
 
 Take a look on the [Issue #5](https://github.com/navaismo/Ender-3V3-SE/issues/5) to get the full backgorund.
 
 <br>
 
-<p style="color: orange;"> <b>4.</b> Got a leveling error? </p>
+```diff
++ 4. Got a leveling error?
+```
 This error is only present when using Octoprint and is expected since you flashed a new Grid with no values. So after flashing the new firmware start a new fresh level procedure and then connect Octoprint again.
 
 
 <br>
 
-<p style="color: orange;"> <b>5.</b> Why the Render of GCcode Preview takes so much time? & Why there is no Gcode Preview without Octoprint?</p>
+```diff
++ 5. Why the Render of GCcode Preview takes so much time? 
++ 5a Why there is no Gcode Preview without Octoprint?
+```
 TL;DR: Because LCD is closed and we haven't found it it has a SRAM to store images. An thats why is only supported by Octoprint and not stand alone. To process the image and send it.
 
 Take a look on [this Discussion](https://github.com/navaismo/Ender-3V3-SE/discussions/28) to see the efforts. Eduard and I spent a lot of time trying to find an Address with no luck.
 
 <br>
 
-<p style="color: orange;"> <b>6.</b> Sometimes when Thumbnail Enabled the printer pauses and has weird movement behaviour before the print starts?</p>
+```diff
++ 6. Sometimes when Thumbnail Enabled the printer pauses and has weird movement behaviour before the print starts?
+```
 This is because the plugin programaticaly pauses the print job until the Thumbnail is rendered, to avoid affect the print quality.
 
 It is recommended to Load the file first and then click on Print.
@@ -413,10 +426,19 @@ If is a direct print, is recommended to preheat the filament so the transmission
 
 <br>
 
-<p style="color: orange;"> <b>7.</b> Sometimes when the thumb is disabled an loaded the Job in LCD I see the Default image dissapearing slowly while the other is rendering. Can you just clean the LCD?</p>
+```diff
++ 7. Sometimes when the thumb is disabled an loaded the Job in LCD I see the Default image dissapearing slowly while the other is rendering. Can you just clean the LCD?
+```
 This is a personal decision, I like a lot to see how the Creality Man dissapear slowly, it brings me peace.
 
 <br>
 
-<p style="color: orange;"> <b>8.</b> Sometimes in the Tune Menu appears the Nozzle and Bed Icons, Why?</p>
+```diff
++ 8. Sometimes in the Tune Menu appears the Nozzle and Bed Icons, Why?
+```
 This is beacuse the encoder/Knob is moved too fast and enter in an unknow state that by default try to render the lower info area. If you move it slowly this will no appear.
+
+
+
+<br><br><br>
+____________________________________________________________________________________________
