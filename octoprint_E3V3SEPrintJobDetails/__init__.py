@@ -141,7 +141,8 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             except Exception as e:
                 self._plugin_logger.error(f"{self.get_current_function_name()}: Failed to save metadata to {metadata_path}: {e}") 
                 self._plugin_manager.send_plugin_message(self._identifier, dict(type="close_popup"))
-                self._plugin_manager.send_plugin_message(self._identifier, {"type":"error_popup", "message":"Error Ocurred {e} try uploading the file again"})
+                my_err = f"Error Ocurred! \n \n {e}.\n Try uploading the file again"
+                self._plugin_manager.send_plugin_message(self._identifier, {"type":"error_popup", "message":my_err})
                 
                 return None
                 
@@ -158,7 +159,8 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             except Exception as e:
                 self._plugin_logger.error(f"{self.get_current_function_name()}: Failed to load metadata from {metadata_path}: {e}")
                 self._plugin_manager.send_plugin_message(self._identifier, dict(type="close_popup"))
-                self._plugin_manager.send_plugin_message(self._identifier, {"type":"error_popup", "message":"Error Ocurred {e} try uploading the file again"})
+                my_err = f"Error Ocurred! \n \n {e}.\n Try uploading the file again"
+                self._plugin_manager.send_plugin_message(self._identifier, {"type":"error_popup", "message":my_err})
                 
                 return None
             
@@ -205,6 +207,9 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self._plugin_logger.info(f"Metadata written for {path}")
             except Exception as e:
                 self._plugin_logger.error(f"{self.get_current_function_name()}: Error writing metadata for {path}: {e}")
+                my_err = f"Error Ocurred! \n \n {e}.\n Try uploading the file again"
+                self._plugin_manager.send_plugin_message(self._identifier, {"type":"error_popup", "message":my_err})
+                
                         
             self._plugin_logger.info(f">>>>>> E3v3seprintjobdetailsPlugin PreProcessing Parsing complete for {self.file_name}")
             
@@ -272,7 +277,10 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                             self._plugin_manager.send_plugin_message(self._identifier, dict(type="close_popup"))
                                                 
                 except Exception as e: # Catch any error
-                    self._plugin_logger.error(f"{self.get_current_function_name()}: {e}")                    
+                    self._plugin_logger.error(f"{self.get_current_function_name()}: {e}")  
+                    my_err = f"Error Ocurred! \n \n {e}.\n Try uploading the file again"
+                    self._plugin_manager.send_plugin_message(self._identifier, {"type":"error_popup", "message":my_err})
+                                  
                         
                     
 
@@ -405,6 +413,9 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     
             except Exception as e:
                 self._plugin_logger.error(f"{self.get_current_function_name()}:  {e}")
+                my_err = f"Error Ocurred! \n \n {e}.\n Try uploading the file again"
+                self._plugin_manager.send_plugin_message(self._identifier, {"type":"error_popup", "message":my_err})
+                
                 return False              
                     
                     
@@ -704,6 +715,9 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
             except Exception as e:
                 self._plugin_logger.error(f"Error sending pixel data to Marlin: {e}")
+                my_err = f"Error Ocurred! \n \n {e}.\n Try uploading the file again"
+                self._plugin_manager.send_plugin_message(self._identifier, {"type":"error_popup", "message":my_err})
+                
 
 
 
@@ -845,8 +859,8 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             self.prev_print_time_left = None
             self.start_time = None
             self.elapsed_time = None
-            self.file_name = None
-            self.file_path = None
+            #self.file_name = None
+            #self.file_path = None
             self.print_time = None
             self.print_time_left = None
             self.progress = None
@@ -894,7 +908,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
 
 __plugin_pythoncompat__ = ">=3,<4"  # Only Python 3
-__plugin_version__ = "0.0.2.2"
+__plugin_version__ = "0.0.2.3"
 
 
 def __plugin_load__():

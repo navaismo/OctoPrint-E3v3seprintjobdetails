@@ -100,10 +100,11 @@ $(function() {
                                 <div class="modal-body text-center">
                                     <p id="errorPopupMessage" class="mb-3" style="font-size: 16px; font-weight: 500;"></p>
                                     <div class="error-animation">
-                                        <div class="circle"></div>
-                                        <div class="cross">
-                                            <div class="cross-line"></div>
-                                            <div class="cross-line"></div>
+                                        <div class="circle">
+                                            <div class="cross">
+                                                <div class="cross-line"></div>
+                                                <div class="cross-line"></div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -116,41 +117,46 @@ $(function() {
                 $("head").append(`
                     <style>
                         .error-animation {
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            width: 60px;
+                            height: 60px;
+                            margin: 10px auto;
                             position: relative;
-                            width: 50px;
-                            height: 50px;
-                            margin: 0 auto;
                         }
         
                         .circle {
-                            width: 100%;
-                            height: 100%;
-                            border-radius: 50%;
+                            width: 60px;
+                            height: 60px;
                             background-color: #dc3545;
-                            opacity: 0.7;
+                            border-radius: 50%;
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
                             position: absolute;
-                            top: 0;
-                            left: 0;
                             animation: pulse 1.5s infinite;
                         }
         
                         .cross {
+                            position: relative;
+                            width: 40px;
+                            height: 40px;
+                        }
+        
+                        .cross-line {
                             position: absolute;
+                            width: 35px;
+                            height: 6px;
+                            background-color: white;
+                            border-radius: 5px;
                             top: 50%;
                             left: 50%;
                             transform: translate(-50%, -50%) rotate(45deg);
                         }
         
-                        .cross-line {
-                            position: absolute;
-                            width: 40px;
-                            height: 5px;
-                            background-color: white;
-                            border-radius: 5px;
-                        }
-        
                         .cross-line:nth-child(2) {
-                            transform: rotate(90deg);
+                            transform: translate(-50%, -50%) rotate(-45deg);
                         }
         
                         @keyframes pulse {
