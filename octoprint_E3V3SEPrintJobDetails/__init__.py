@@ -503,10 +503,23 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self._plugin_logger.info(f"====++++====++++==== Layer Number: {self.current_layer}")
 
 
+           
             # Handling M117 commands
             elif cmd.startswith("M117"):
-                # We want to write the cancelled MSG
-                if cmd == "M117 Print is cancelled" or cmd == "M117 Print was cancelled":
+                allowedM117 = [
+                    "M117 Testing Sweep", 
+                    "M117 Finish Test Sweep",     
+                    "M117 Starting resonance test",
+                    "M117 ADXL|ON",
+                    "M117 Resonance Test on", 
+                    "M117 Resonance Test complete",
+                    "M117 Freq for",
+                    "M117 Print is cancelled",
+                    "M117 Print was cancelled"
+                    
+                ]
+                # We want to write any of the allowed messages to the LCD
+                if any(cmd.startswith(allowed) for allowed in allowedM117):
                     return [cmd]
 
                 if self._settings.get(["enable_o9000_commands"]):
