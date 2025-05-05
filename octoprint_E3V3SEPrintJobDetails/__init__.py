@@ -501,6 +501,8 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
                 # Log the Layer Number
                 self._plugin_logger.info(f"====++++====++++==== Layer Number: {self.current_layer}")
+                comm_instance._command_queue.put(f"O9001|ET:{self.myETA}|PG:{self.progress}|CL:{str(self.current_layer).rjust(7, ' ')}")
+
 
 
            
@@ -921,7 +923,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
 
 __plugin_pythoncompat__ = ">=3,<4"  # Only Python 3
-__plugin_version__ = "0.0.2.3"
+__plugin_version__ = "0.0.2.5"
 
 
 def __plugin_load__():
