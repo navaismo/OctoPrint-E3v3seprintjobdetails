@@ -174,28 +174,28 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             if not octoprint.filemanager.valid_file_type(path, type="gcode"):
                 return file_object
             
-            self.file_name = file_object.filename
+            file_name = file_object.filename
              
             # Read the file content from the stream
             file_stream = file_object.stream()
             file_content = file_stream.read().decode('utf-8')
             
             # obtain the data from stream
-            self.total_layers = self.find_total_layers_from_content(file_content)
-            self.b64_thumb = self.extract_thumbnail_from_content(file_content)
-            self.progress, self.myETA = self.find_first_m73_from_content(file_content)
-            self.print_time = self.myETA
+            total_layers = self.find_total_layers_from_content(file_content)
+            b64_thumb = self.extract_thumbnail_from_content(file_content)
+            progress, myETA = self.find_first_m73_from_content(file_content)
+            print_time = myETA
             
             # save into object
             metadata = {
-            "file_name": self.file_name,
+            "file_name": file_name,
             "file_path": path,   
-            "total_layers": self.total_layers,  
-            "print_time": self.print_time,  
-            "print_time_left": self.print_time,
+            "total_layers": total_layers,  
+            "print_time": print_time,  
+            "print_time_left": print_time,
             "current_layer": 0,
-            "progress": self.progress,
-            "thumb_data": self.b64_thumb,
+            "progress": progress,
+            "thumb_data": b64_thumb,
             "processed": True
             }
             
@@ -203,7 +203,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             
             # Store metadata
             try:
-                self.save_metadata_to_json(self.file_name, metadata)
+                self.save_metadata_to_json(file_name, metadata)
                 self._plugin_logger.info(f"Metadata written for {path}")
             except Exception as e:
                 self._plugin_logger.error(f"{self.get_current_function_name()}: Error writing metadata for {path}: {e}")
@@ -211,7 +211,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 self._plugin_manager.send_plugin_message(self._identifier, {"type":"error_popup", "message":my_err})
                 
                         
-            self._plugin_logger.info(f">>>>>> E3v3seprintjobdetailsPlugin PreProcessing Parsing complete for {self.file_name}")
+            self._plugin_logger.info(f">>>>>> E3v3seprintjobdetailsPlugin PreProcessing Parsing complete for {file_name}")
             
             # Return the processed file without modifications
             return file_object 
@@ -768,12 +768,12 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             for line in file_content.splitlines():
                 if "; total layer number:" in line:
                     # Extract total layers if Orca Generated
-                    self.total_layers = line.strip().split(":")[-1].strip()
-                    return self.total_layers
+                    total_layers = line.strip().split(":")[-1].strip()
+                    return total_layers
                 elif ";LAYER_COUNT:" in line:
                     # Extract total layers if Cura Generated
-                    self.total_layers = line.strip().split(":")[-1].strip()
-                    return self.total_layers
+                    total_layers = line.strip().split(":")[-1].strip()
+                    return total_layers
             return None
 
         def find_first_m73_from_content(self, file_content):
@@ -783,7 +783,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 m73_match = re.match(r"M73 P(\d+)(?: R(\d+))?", line)
                 if m73_match:
                     #self._plugin_logger.info(f"Found M73 command: {m73_match.group(0)}")
-                    self.progress = int(m73_match.group(1))  # Extract progress (P)
+                    progress = int(m73_match.group(1))  # Extract progress (P)
                     remaining_minutes = int(m73_match.group(2)) if m73_match.group(2) else 0  # Extract remaining minutes (R), default to 0 if missing
                     # Convert remaining minutes to HH:MM:SS
                     hours, minutes = divmod(remaining_minutes, 60)
@@ -793,14 +793,14 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     #self._plugin_logger.info(self.progress)
                     #self._plugin_logger.info(remaining_time_hms)
                     # Log and send the progress and remaining time
-                    if self.progress == 0:
-                        self.print_time = remaining_time_hms
-                        self.print_time_left = remaining_time_hms
-                        self.current_layer = 0
+                    if progress == 0:
+                        print_time = remaining_time_hms
+                        print_time_left = remaining_time_hms
+                        current_layer = 0
                         #self._plugin_logger.info(self.progress)
                         #self._plugin_logger.info(remaining_time_hms)
                         
-                        return self.progress, remaining_time_hms
+                        return progress, remaining_time_hms
             
                  
             return 0, "00:00:00"
@@ -923,7 +923,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
 
 __plugin_pythoncompat__ = ">=3,<4"  # Only Python 3
-__plugin_version__ = "0.0.2.5"
+__plugin_version__ = "0.0.2.6"
 
 
 def __plugin_load__():
