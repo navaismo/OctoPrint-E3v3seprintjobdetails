@@ -476,6 +476,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     hours, minutes = divmod(remaining_minutes, 60)
                     seconds = 0
                     remaining_time_hms = f"{hours:02}:{minutes:02}:{seconds:02}"
+                    self.myETA = remaining_time_hms
                     if self.progress > 0 and self.send_m73:
                         self._plugin_logger.info(f"====++++====++++==== Intercepted M73: Progress={self.progress}%, Remaining Time={remaining_time_hms}")
                         if self.prev_layer_number != self.current_layer:
@@ -501,7 +502,8 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
                 # Log the Layer Number
                 self._plugin_logger.info(f"====++++====++++==== Layer Number: {self.current_layer}")
-                comm_instance._command_queue.put(f"O9001|ET:{self.myETA}|PG:{self.progress}|CL:{str(self.current_layer).rjust(7, ' ')}")
+                if self._settings.get(["progress_type"]) != "m73_progress":
+                    comm_instance._command_queue.put(f"O9001|ET:{self.myETA}|PG:{self.progress}|CL:{str(self.current_layer).rjust(7, ' ')}")
 
 
 
