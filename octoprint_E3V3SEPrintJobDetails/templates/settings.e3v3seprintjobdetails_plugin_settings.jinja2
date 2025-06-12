@@ -240,6 +240,20 @@
                 title="If the slider is Enabled, OctoPrint will send the Thumbnail to the LCD, this process will take up to 2 minutes and will pause the print job until it finishes."></i>
         </div>
 
+        <br><br>
+        <p>Select whether to Override M25 Pause GCODE with the Octoprint Pause Script:</p>
+        <div class="switch-container m73-slider
+            <label class="control-label">Use M25 Command</label>
+            <label class="switch">
+                <input type="checkbox" id="override_m25_pause"
+                    data-bind="checked: settings.plugins.E3V3SEPrintJobDetails.override_m25_pause" />
+                <span class="slider round"></span>
+            </label>
+            <label class="control-label">&nbsp;&nbsp;Override M25 Command</label>
+            <i class="fas fa-info-circle hint-icon1" data-toggle="tooltip" data-placement="right"
+                title="If the slider is Enabled, OctoPrint will override the M25 command with the PAUSE GCODE SCRIPT."></i>
+        </div>
+
 
     </div>
 

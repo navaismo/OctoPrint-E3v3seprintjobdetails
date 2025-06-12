@@ -127,6 +127,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             self._plugin_logger.info(f"Enable O9000 Commands: {self._settings.get(['enable_o9000_commands'])}")
             self._plugin_logger.info(f"Progress based on: {self._settings.get(['progress_type'])}")
             self._plugin_logger.info(f"Send Gcode Preview: {self._settings.get(['enable_gcode_preview'])}")
+            self._plugin_logger.info(f"Override M25 Pause: {self._settings.get(['override_m25_pause'])}")
 
 
         # save metadata of the file
@@ -234,6 +235,10 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                         threading.Thread(target=self.get_print_metadata(self.file_name), daemon=True).start()
                     else:
                         self._plugin_logger.info("Metadata already sent, not a Direct Print")
+                        
+                if state == "PAUSED":
+                    self._plugin_logger.info(">>> Printer is paused. Opening Popup to Purge or Continue.")
+                    self._plugin_manager.send_plugin_message(self._identifier, {"type":"purge_popup", "message":"Printer is paused. Do you want to purge filament?"})        
                         
                         
             if event == "Connected":
@@ -465,6 +470,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
        
         def gcode_sending_handler(self, comm_instance, phase, cmd, cmd_type, gcode, *args, **kwargs):
             #self._plugin_logger.info(f"Intercepted G-code: {cmd}")
+             
             # Intercept M73 commands to extract progress and time remaining
             if cmd.startswith("M73") and self._settings.get(["progress_type"]) == "m73_progress":
                 m73_match = re.match(r"M73 P(\d+)(?: R(\d+))?", cmd)
@@ -530,6 +536,23 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     self._plugin_logger.info(f"Ignoring M117 Command since this plugin has precedence to write to the LCD: {cmd}")
                     return []  #
 
+            elif cmd.startswith("M25"):
+                self._plugin_logger.info(f"Intercepted M25 command to pause the print: {cmd}")
+                if self._settings.get(["override_m25_pause"]):
+                    self._plugin_logger.info(f"Override M25 Pause: {self._settings.get(['override_m25_pause'])}")
+                    if self._printer.is_printing():
+                        self._plugin_logger.info(">>> Printer is printing. Pausing print job now.")
+                        self._printer.pause_print()
+                    else:
+                        self._plugin_logger.info(">>> Printer is not printing. Ignoring M25 command.")
+                else:
+                    self._plugin_logger.info(f"Not overriding M25 Pause")
+                    # If we don't override the M25 command, we return it to the printer
+                    return [cmd]        
+                
+           
+            
+
             # Return the cmd
             return [cmd]
         
@@ -546,6 +569,22 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     self._plugin_logger.info(f"Screen rendered in LCD")
                     self.is_lcd_ready = True
                     return line
+                
+                # received command to pause the print
+                elif "pause-job" in line:
+                    self._plugin_logger.info(f"Received command to pause the print")
+                    if self._printer.is_printing():
+                        self._plugin_logger.info(">>> Printer is printing. Pausing print job now.")
+                        self._printer.pause_print()
+                        return line
+                
+                # received command to resume the print
+                elif "resume-job" in line:
+                    self._plugin_logger.info(f"Received command to resume the print")
+                    if self._printer.is_paused():
+                        self._plugin_logger.info(">>> Printer is paused. Resuming print job now.")
+                        self._printer.resume_print()
+                        return line    
                 
             # Thumbnail Ready            
             if line.startswith("O9002"):
@@ -925,7 +964,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
 
 __plugin_pythoncompat__ = ">=3,<4"  # Only Python 3
-__plugin_version__ = "0.0.2.6"
+__plugin_version__ = "0.0.2.7"
 
 
 def __plugin_load__():
