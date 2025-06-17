@@ -254,6 +254,19 @@
                 title="If the slider is Enabled, OctoPrint will override the M25 command with the PAUSE GCODE SCRIPT."></i>
         </div>
 
+        <br><br>
+        <p>Select whether enable or not the Purge Filament Option on Pause:</p>
+        <div class="switch-container m73-slider
+            <label class="control-label">Disable</label>
+            <label class="switch">
+                <input type="checkbox" id="enable_purge_filament"
+                    data-bind="checked: settings.plugins.E3V3SEPrintJobDetails.enable_purge_filament" />
+                <span class="slider round"></span>
+            </label>
+            <label class="control-label">&nbsp;&nbsp;Enable Purge Filament</label>
+            <i class="fas fa-info-circle hint-icon1" data-toggle="tooltip" data-placement="right"
+                title="If the slider is Enabled, OctoPrint will show a purge button when the print is paused."></i>
+        </div>
 
     </div>
 

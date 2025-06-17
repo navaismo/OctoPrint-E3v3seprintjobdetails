@@ -80,6 +80,11 @@ $(function () {
             $("#errorPopup").modal("hide");
         }
 
+         function closePurgePopup() {
+            console.log("Closing popup...");
+            $("#purgePopup").modal("hide");
+        }
+
         function showErrorPopup(message) {
             console.log("Attempting to show error popup:", message);
 
@@ -285,6 +290,8 @@ $(function () {
                 closeErrorPopup();
             } else if (data.type === "purge_popup") {
                 purgePopup(data.message);
+            } else if (data.type === "close_purge_popup") {
+                closePurgePopup();
             }
         };
 

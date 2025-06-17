@@ -64,6 +64,10 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             # Initialize custom logger
             self._plugin_logger = logging.getLogger("octoprint.plugins.E3v3seprintjobdetails")
 
+
+        # Required by new Octoprint version
+        def is_template_autoescaped(self): 
+            return True    
         
         def configure_logger(self):
             # Get the base path for logs from the settings
@@ -89,7 +93,9 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             return dict(
                 enable_o9000_commands=False,  # Default value for the slider.
                 enable_gcode_preview=False,  # Default value for the slider.
-                progress_type="time_progress"  # Default option selected for radio buttons.
+                progress_type="time_progress",  # Default option selected for radio buttons.
+                enable_purge_filament=False,  # Default value for the slider.
+                override_m25_pause=False  # Default value for the slider.
             )
 
         def get_template_configs(self): # get the values
@@ -128,6 +134,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
             self._plugin_logger.info(f"Progress based on: {self._settings.get(['progress_type'])}")
             self._plugin_logger.info(f"Send Gcode Preview: {self._settings.get(['enable_gcode_preview'])}")
             self._plugin_logger.info(f"Override M25 Pause: {self._settings.get(['override_m25_pause'])}")
+            self._plugin_logger.info(f"Enable Purge Filament: {self._settings.get(['enable_purge_filament'])}")
 
 
         # save metadata of the file
@@ -232,13 +239,15 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                         self._plugin_logger.info("Direct Print? Metadata not sent yet")
                         self.processing_file = True
                         self.is_direct_print = True
-                        threading.Thread(target=self.get_print_metadata(self.file_name), daemon=True).start()
+                        if self._settings.get(["enable_o9000_commands"]):
+                            threading.Thread(target=self.get_print_metadata(self.file_name), daemon=True).start()
                     else:
                         self._plugin_logger.info("Metadata already sent, not a Direct Print")
                         
                 if state == "PAUSED":
-                    self._plugin_logger.info(">>> Printer is paused. Opening Popup to Purge or Continue.")
-                    self._plugin_manager.send_plugin_message(self._identifier, {"type":"purge_popup", "message":"Printer is paused. Do you want to purge filament?"})        
+                    if self._settings.get(["enable_purge_filament"]):
+                        self._plugin_logger.info(">>> Printer is paused. Opening Popup to Purge or Continue.")
+                        self._plugin_manager.send_plugin_message(self._identifier, {"type":"purge_popup", "message":"Printer is paused. Do you want to purge filament?"})        
                         
                         
             if event == "Connected":
@@ -251,41 +260,44 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 #self.print_finish = True
 
             if event == "FileSelected":  # If file selected gather all data
-                try:
-                    # If Preview is disabled, we need to send the default thumbnail
-                    if self._settings.get(["enable_gcode_preview"]):
-                        self._plugin_logger.info("Sending command to render Gcode thumbnail")
-                        self.send_O9000_cmd("OFFGPIC|")
-                    else:
-                        self._plugin_logger.info("Sending command to render default thumbnail")
-                        self.send_O9000_cmd("ONGPIC|")
-                                            
-                    self.file_name = payload.get("name")
-                    self.file_path = payload.get("path")
-                    
-                    if self.sent_imagemap:
-                        self.sent_imagemap = False
-                        self._plugin_logger.info("Resetting Imagemap Flag") #Looks like changed the model so we need to send the imagemap again
-                        
-                    
-                    if not self.is_direct_print: #Flag for direct print is False
-                        self.processing_file = True #lock the file
-                        self._plugin_logger.info("Not a Direct Print, Processing Metadata File")
-                        self._plugin_logger.info("Set Lock for FileSelected")
-                        # Send popup to the GUI
-                        self._plugin_manager.send_plugin_message(self._identifier, {"type":"popup", "message":"Rendering Data in the LCD. Please Wait..."})
-                        # Start a thread to get the metadata
-                        threading.Thread(target=self.get_print_metadata(self.file_name), daemon=True).start() # Get the metadata
-                        
-                        # If Gcode preview is disabled, close the popup
-                        if not self._settings.get(["enable_gcode_preview"]): 
-                            self._plugin_manager.send_plugin_message(self._identifier, dict(type="close_popup"))
+                if self._settings.get(["enable_o9000_commands"]):
+                    try:
+                        # If Preview is disabled, we need to send the default thumbnail
+                        if self._settings.get(["enable_gcode_preview"]):
+                            self._plugin_logger.info("Sending command to render Gcode thumbnail")
+                            self.send_O9000_cmd("OFFGPIC|")
+                        else:
+                            self._plugin_logger.info("Sending command to render default thumbnail")
+                            self.send_O9000_cmd("ONGPIC|")
                                                 
-                except Exception as e: # Catch any error
-                    self._plugin_logger.error(f"{self.get_current_function_name()}: {e}")  
-                    my_err = f"Error Ocurred! \n \n {e}.\n Try uploading the file again"
-                    self._plugin_manager.send_plugin_message(self._identifier, {"type":"error_popup", "message":my_err})
-                                  
+                        self.file_name = payload.get("name")
+                        self.file_path = payload.get("path")
+                        
+                        if self.sent_imagemap:
+                            self.sent_imagemap = False
+                            self._plugin_logger.info("Resetting Imagemap Flag") #Looks like changed the model so we need to send the imagemap again
+                            
+                        
+                        if not self.is_direct_print: #Flag for direct print is False
+                            self.processing_file = True #lock the file
+                            self._plugin_logger.info("Not a Direct Print, Processing Metadata File")
+                            self._plugin_logger.info("Set Lock for FileSelected")
+                            # Send popup to the GUI
+                            self._plugin_manager.send_plugin_message(self._identifier, {"type":"popup", "message":"Rendering Data in the LCD. Please Wait..."})
+                            # Start a thread to get the metadata
+                            threading.Thread(target=self.get_print_metadata(self.file_name), daemon=True).start() # Get the metadata
+                            
+                            # If Gcode preview is disabled, close the popup
+                            if not self._settings.get(["enable_gcode_preview"]): 
+                                self._plugin_manager.send_plugin_message(self._identifier, dict(type="close_popup"))
+                                                    
+                    except Exception as e: # Catch any error
+                        self._plugin_logger.error(f"{self.get_current_function_name()}: {e}")  
+                        my_err = f"Error Ocurred! \n \n {e}.\n Try uploading the file again"
+                        self._plugin_manager.send_plugin_message(self._identifier, {"type":"error_popup", "message":my_err})
+                else:
+                    self._plugin_logger.info("O9000 Commands are disabled, not processing the file")
+                    self.processing_file = False                    
                         
                     
 
@@ -487,15 +499,22 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                         self._plugin_logger.info(f"====++++====++++==== Intercepted M73: Progress={self.progress}%, Remaining Time={remaining_time_hms}")
                         if self.prev_layer_number != self.current_layer:
                             self._plugin_logger.info(f"M73-O9001 Update: Progress={self.progress}%, ETA={remaining_time_hms}, Layer={self.current_layer}")
-                            comm_instance._command_queue.put(f"O9001|ET:{remaining_time_hms}|PG:{self.progress}|CL:{str(self.current_layer).rjust(7, ' ')}")
-
+                            if self._settings.get(["enable_o9000_commands"]):
+                                # Send the O9001 command with the progress and remaining time
+                                comm_instance._command_queue.put(f"O9001|ET:{remaining_time_hms}|PG:{self.progress}|CL:{str(self.current_layer).rjust(7, ' ')}")
+                            else:    
+                                self._plugin_logger.info(f"Ignoring UPDATE command because O9000 commands are disabled")
+                                return []
 
             # Detect the Layer Change
             if cmd.startswith("G1") and "Z" in cmd and self._settings.get(["progress_type"]) != "m73_progress":
                 if (self.prev_print_time_left != self.print_time_left or self.prev_layer_number != self.current_layer):
                     self._plugin_logger.info(f"N-O9001 Update: Progress={self.progress}%, ETA={self.myETA}, Layer={self.current_layer}")
-                    comm_instance._command_queue.put(f"O9001|ET:{self.myETA}|PG:{self.progress}|CL:{str(self.current_layer).rjust(7, ' ')}")
-
+                    if self._settings.get(["enable_o9000_commands"]):
+                        comm_instance._command_queue.put(f"O9001|ET:{self.myETA}|PG:{self.progress}|CL:{str(self.current_layer).rjust(7, ' ')}")
+                    else:
+                        self._plugin_logger.info(f"Ignoring UPDATE command because O9000 commands are disabled")
+                        return [] 
 
             # Catch Commands to search the below...
             layer_comment_match = re.match(r"M117 DASHBOARD_LAYER_INDICATOR (\d+)", cmd)
@@ -509,7 +528,11 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                 # Log the Layer Number
                 self._plugin_logger.info(f"====++++====++++==== Layer Number: {self.current_layer}")
                 if self._settings.get(["progress_type"]) != "m73_progress":
-                    comm_instance._command_queue.put(f"O9001|ET:{self.myETA}|PG:{self.progress}|CL:{str(self.current_layer).rjust(7, ' ')}")
+                    if self._settings.get(["enable_o9000_commands"]):
+                        comm_instance._command_queue.put(f"O9001|ET:{self.myETA}|PG:{self.progress}|CL:{str(self.current_layer).rjust(7, ' ')}")
+                    else:
+                        self._plugin_logger.info(f"Ignoring UPDATE command because O9000 commands are disabled")
+                        return []    
 
 
 
@@ -583,6 +606,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     self._plugin_logger.info(f"Received command to resume the print")
                     if self._printer.is_paused():
                         self._plugin_logger.info(">>> Printer is paused. Resuming print job now.")
+                        self._plugin_manager.send_plugin_message(self._identifier, dict(type="close_purge_popup"))
                         self._printer.resume_print()
                         return line    
                 
@@ -600,6 +624,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
     
                     if self._printer.is_paused(): # Resume the print job
                         self._plugin_logger.info(">>> Printer is paused. Resuming print job now.")
+                        self._plugin_manager.send_plugin_message(self._identifier, dict(type="close_purge_popup"))
                         self._printer.resume_print()
                 
                     return line
@@ -964,7 +989,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
 
 __plugin_pythoncompat__ = ">=3,<4"  # Only Python 3
-__plugin_version__ = "0.0.2.7"
+__plugin_version__ = "0.0.2.8"
 
 
 def __plugin_load__():
