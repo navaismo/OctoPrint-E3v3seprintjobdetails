@@ -543,7 +543,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     "M117 Testing Sweep", 
                     "M117 Finish Test Sweep",     
                     "M117 Starting resonance test",
-                    "M117 ADXL|ON",
+                    "M117 Accelerometer|ON",
                     "M117 Resonance Test on", 
                     "M117 Resonance Test complete",
                     "M117 Freq for",
@@ -566,8 +566,10 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                     if self._printer.is_printing():
                         self._plugin_logger.info(">>> Printer is printing. Pausing print job now.")
                         self._printer.pause_print()
+                        return []
                     else:
                         self._plugin_logger.info(">>> Printer is not printing. Ignoring M25 command.")
+                        
                 else:
                     self._plugin_logger.info(f"Not overriding M25 Pause")
                     # If we don't override the M25 command, we return it to the printer
@@ -989,7 +991,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
 
 
 __plugin_pythoncompat__ = ">=3,<4"  # Only Python 3
-__plugin_version__ = "0.0.2.8"
+__plugin_version__ = "0.0.2.9"
 
 
 def __plugin_load__():
