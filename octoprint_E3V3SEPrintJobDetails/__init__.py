@@ -485,10 +485,12 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
              
             # Intercept M73 commands to extract progress and time remaining
             if cmd.startswith("M73") and self._settings.get(["progress_type"]) == "m73_progress":
-                m73_match = re.match(r"M73 P(\d+)(?: R(\d+))?", cmd)
+                m73_match = re.match(r"M73 ([PR])(\d+)(?: ([PR])(\d+))?", cmd)
                 if m73_match:
-                    self.progress = int(m73_match.group(1))  # Extract progress (P)
-                    remaining_minutes = int(m73_match.group(2)) if m73_match.group(2) else 0  # Extract remaining minutes (R), default to 0 if missing
+                    val0 = int(m73_match.group(2))
+                    val1 = int(m73_match.group(4)) if m73_match.group(4) else 0
+                    self.progress = val0 if m73_match.group(1) == "P" else val1      # Extract progress (P)
+                    remaining_minutes = val1 if m73_match.group(1) == "R" else val0  # Extract remaining minutes (R), default to 0 if missing
 
                     # Convert remaining minutes to HH:MM:SS
                     hours, minutes = divmod(remaining_minutes, 60)
@@ -807,8 +809,8 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
         # Decode Base64 image to raw pixel data
         def decode_base64_image(self, b64_string):
             image_data = base64.b64decode(b64_string)  # Decode Base64
-            image = Image.open(io.BytesIO(image_data))  # Open image with Pillow
-            return image
+            image = Image.open(io.BytesIO(image_data))  # Open image with Pillow            
+            return image.resize((96,96), resample=Image.Resampling.NEAREST) # Make sure the image is 96x96
         
         #get array map
         def get_pixel_data(self, image):
@@ -898,7 +900,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                         collecting = False  # Reset flag before starting a new block
                         current_thumbnail = []  # Reset buffer
 
-                    if line.startswith("; thumbnail_JPG begin 96x96") or line.startswith("; thumbnail_PNG begin 96x96"):
+                    if line.startswith("; thumbnail_JPG begin ") or line.startswith("; thumbnail_PNG begin "):
                         self._plugin_logger.info("Start collecting OrcaSlicer thumbnail")
                         collecting = True
                         continue  # Skip this line, just marking the start
@@ -913,7 +915,7 @@ class E3v3seprintjobdetailsPlugin(octoprint.plugin.StartupPlugin,
                             current_thumbnail.append(line.lstrip("; ").rstrip())
 
                 elif slicer_type == "Cura":
-                    if line.startswith("; thumbnail begin 96x96"):
+                    if line.startswith("; thumbnail begin "):
                         self._plugin_logger.info("Cura thumbnail detected, starting collection")
                         collecting = True
                         current_thumbnail = []  # Reset buffer
